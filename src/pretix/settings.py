@@ -711,6 +711,7 @@ if config.has_option('sentry', 'dsn') and not any(c in sys.argv for c in ('shell
 
     SENTRY_EVENT_LEVEL = config.get('sentry', 'event_level', fallback='')
     SENTRY_TOKEN = config.get('sentry', 'traces_sample_token', fallback='')
+    SENTRY_ENABLE_LOGS = config.getboolean('sentry', 'enable_logs', fallback=False)
     pretix_denylist = DEFAULT_DENYLIST + [
         "access_token",
         "sentry_dsn",
@@ -744,7 +745,8 @@ if config.has_option('sentry', 'dsn') and not any(c in sys.argv for c in ('shell
             CeleryIntegration(),
             LoggingIntegration(
                 level=logging.INFO,
-                event_level=parse_log_level(SENTRY_EVENT_LEVEL) if SENTRY_EVENT_LEVEL else logging.CRITICAL
+                event_level=parse_log_level(SENTRY_EVENT_LEVEL) if SENTRY_EVENT_LEVEL else logging.CRITICAL,
+                sentry_logs_level=logging.NOTSET if SENTRY_ENABLE_LOGS else None,
             )
         ],
         traces_sampler=traces_sampler,
@@ -752,6 +754,7 @@ if config.has_option('sentry', 'dsn') and not any(c in sys.argv for c in ('shell
         release=__version__,
         event_scrubber=EventScrubber(denylist=pretix_denylist, recursive=True),
         send_default_pii=False,
+        enable_logs=SENTRY_ENABLE_LOGS,
         propagate_traces=False,  # see https://github.com/getsentry/sentry-python/issues/1717
     )
     ignore_logger('pretix.base.tasks')
