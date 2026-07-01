@@ -116,7 +116,7 @@ def prepare_item_list_for_shop(event, *, channel: SalesChannel, subevent=None, v
     )
     prefetch_bundles = Prefetch(
         'bundles',
-        queryset=ItemBundle.objects.using(settings.DATABASE_REPLICA).prefetch_related(
+        queryset=ItemBundle.objects.using(settings.DATABASE_REPLICA).select_related('price_percent').prefetch_related(
             Prefetch('bundled_item',
                      queryset=event.items.using(settings.DATABASE_REPLICA).select_related(
                          'tax_rule').prefetch_related(

@@ -297,3 +297,16 @@ class ScheduledInstallment(models.Model):
 
     def __str__(self):
         return f"Installment {self.installment_number} for {self.plan.order.code}"
+
+
+class ItemBundlePricePercent(models.Model):
+    """
+    Designated price part of a bundled product as a percentage of the parent product's net price.
+    Read and written through ``ItemBundle.designated_price_percent``.
+    """
+    bundle = models.OneToOneField(
+        'pretixbase.ItemBundle',
+        related_name='price_percent',
+        on_delete=models.CASCADE,
+    )
+    percent = models.DecimalField(decimal_places=4, max_digits=7)

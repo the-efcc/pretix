@@ -33,6 +33,7 @@
                     {% bootstrap_field form.itemvar layout="control" %}
                     {% bootstrap_field form.count layout="control" %}
                     {% bootstrap_field form.designated_price layout="control" %}
+                    {% bootstrap_field form.designated_price_percent layout="control" %}
                 </div>
             </div>
         {% endfor %}
@@ -59,6 +60,7 @@
                     {% bootstrap_field formset.empty_form.itemvar layout="control" %}
                     {% bootstrap_field formset.empty_form.count layout="control" %}
                     {% bootstrap_field formset.empty_form.designated_price layout="control" %}
+                    {% bootstrap_field formset.empty_form.designated_price_percent layout="control" %}
                 </div>
             </div>
         {% endescapescript %}

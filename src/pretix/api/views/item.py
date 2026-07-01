@@ -104,7 +104,7 @@ class ItemViewSet(ConditionalListView, viewsets.ModelViewSet):
 
     def get_queryset(self):
         return self.request.event.items.select_related('tax_rule').prefetch_related(
-            'variations', 'addons', 'bundles', 'meta_values', 'meta_values__property',
+            'variations', 'addons', 'bundles', 'bundles__price_percent', 'meta_values', 'meta_values__property',
             'variations__meta_values', 'variations__meta_values__property',
             'require_membership_types', 'variations__require_membership_types',
             'limit_sales_channels', 'variations__limit_sales_channels', 'program_times'
@@ -285,7 +285,8 @@ class ItemBundleViewSet(viewsets.ModelViewSet):
             user=self.request.user,
             auth=self.request.auth,
             data={'bundled_item': instance.bundled_item.pk, 'bundled_variation': instance.bundled_variation.pk if instance.bundled_variation else None,
-                  'count': instance.count, 'designated_price': instance.designated_price}
+                  'count': instance.count, 'designated_price': instance.designated_price,
+                  'designated_price_percent': instance.designated_price_percent}
         )
 
 

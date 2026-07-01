@@ -1042,7 +1042,8 @@ class Event(EventMixin, LoggedModel):
             ia.addon_category = category_map[ia.addon_category.pk]
             ia.save(force_insert=True)
 
-        for ia in ItemBundle.objects.filter(base_item__event=other).prefetch_related('base_item', 'bundled_item', 'bundled_variation'):
+        for ia in ItemBundle.objects.filter(base_item__event=other).prefetch_related('base_item', 'bundled_item', 'bundled_variation', 'price_percent'):
+            ia.designated_price_percent = ia.designated_price_percent  # copied on save, it lives in another table
             ia.pk = None
             ia.base_item = item_map[ia.base_item.pk]
             ia.bundled_item = item_map[ia.bundled_item.pk]

@@ -636,7 +636,8 @@ class ItemCreateForm(I18nModelForm):
                                        multi_allowed=a.multi_allowed)
             for b in self.cleaned_data['copy_from'].bundles.all():
                 instance.bundles.create(bundled_item=b.bundled_item, bundled_variation=b.bundled_variation,
-                                        count=b.count, designated_price=b.designated_price)
+                                        count=b.count, designated_price=b.designated_price,
+                                        designated_price_percent=b.designated_price_percent)
             for pt in self.cleaned_data['copy_from'].program_times.all():
                 instance.program_times.create(start=pt.start, end=pt.end, location=pt.location)
 
@@ -1262,6 +1263,7 @@ class ItemBundleFormSet(I18nFormSet):
     def clean(self):
         super().clean()
         ivs = set()
+        prices = []
         for i in range(0, self.total_form_count()):
             form = self.forms[i]
             if self.can_delete:
@@ -1280,9 +1282,20 @@ class ItemBundleFormSet(I18nFormSet):
 
                 ivs.add(form.cleaned_data['itemvar'])
 
+            prices.append((form.cleaned_data.get('count') or 0, form.cleaned_data.get('designated_price'),
+                           form.cleaned_data.get('designated_price_percent')))
+
+        ItemBundle.clean_designated_prices(prices)
+
 
 class ItemBundleForm(I18nModelForm):
     itemvar = forms.ChoiceField(label=_('Bundled product'))
+    designated_price_percent = forms.DecimalField(
+        label=_('Designated price part (percentage)'),
+        help_text=_('Alternative to the fixed designated price part: a percentage of the parent product\'s net price. '
+                    'The bundled item\'s gross price is derived from this net amount using its own tax rate.'),
+        required=False, min_value=0, max_value=100, max_digits=7, decimal_places=4,
+    )
 
     def __init__(self, *args, **kwargs):
         self.item = kwargs.pop('item')
@@ -1299,6 +1312,7 @@ class ItemBundleForm(I18nModelForm):
                     initial['itemvar'] = str(instance.bundled_item.pk)
             except Item.DoesNotExist:
                 pass
+            initial['designated_price_percent'] = instance.designated_price_percent
 
         kwargs['initial'] = initial
         super().__init__(*args, **kwargs)
@@ -1324,6 +1338,7 @@ class ItemBundleForm(I18nModelForm):
         if not self.cleaned_data.get('designated_price'):
             d['designated_price'] = Decimal('0.00')
             self.instance.designated_price = Decimal('0.00')
+        self.instance.designated_price_percent = d.get('designated_price_percent')
 
         if 'itemvar' in self.cleaned_data:
             if '-' in self.cleaned_data['itemvar']:

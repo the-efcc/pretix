@@ -177,10 +177,13 @@ class ItemVariationSerializer(SalesChannelMigrationMixin, I18nAwareModelSerializ
 
 
 class InlineItemBundleSerializer(serializers.ModelSerializer):
+    designated_price_percent = serializers.DecimalField(max_digits=7, decimal_places=4, min_value=0, max_value=100,
+                                                        required=False)
+
     class Meta:
         model = ItemBundle
         fields = ('bundled_item', 'bundled_variation', 'count',
-                  'designated_price')
+                  'designated_price', 'designated_price_percent')
 
 
 class InlineItemAddOnSerializer(serializers.ModelSerializer):
@@ -197,10 +200,13 @@ class InlineItemProgramTimeSerializer(serializers.ModelSerializer):
 
 
 class ItemBundleSerializer(serializers.ModelSerializer):
+    designated_price_percent = serializers.DecimalField(max_digits=7, decimal_places=4, min_value=0, max_value=100,
+                                                        required=False)
+
     class Meta:
         model = ItemBundle
         fields = ('id', 'bundled_item', 'bundled_variation', 'count',
-                  'designated_price')
+                  'designated_price', 'designated_price_percent')
 
     def validate(self, data):
         data = super().validate(data)
@@ -217,6 +223,12 @@ class ItemBundleSerializer(serializers.ModelSerializer):
         if full_data.get('bundled_item'):
             if full_data['bundled_item'].bundles.exists():
                 raise ValidationError(_("The bundled item must not have bundles on its own."))
+
+        others = item.bundles.exclude(pk=self.instance.pk) if self.instance else item.bundles.all()
+        ItemBundle.clean_designated_prices(
+            [(b.count, b.designated_price, b.designated_price_percent) for b in others] +
+            [(full_data.get('count', 1), full_data.get('designated_price'), full_data.get('designated_price_percent'))]
+        )
 
         return data
 
@@ -379,6 +391,9 @@ class ItemSerializer(SalesChannelMigrationMixin, I18nAwareModelSerializer):
         if not self.instance:
             for b_data in value:
                 ItemBundle.clean_itemvar(self.context['event'], b_data.get('bundled_item'), b_data.get('bundled_variation'))
+            ItemBundle.clean_designated_prices(
+                [(b.get('count', 1), b.get('designated_price'), b.get('designated_price_percent')) for b in value]
+            )
         return value
 
     def validate_addons(self, value):

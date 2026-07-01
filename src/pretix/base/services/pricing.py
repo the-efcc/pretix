@@ -33,7 +33,7 @@ from django.db.models import Q
 from pretix.base.decimal import round_decimal
 from pretix.base.models import (
     AbstractPosition, CartPosition, InvoiceAddress, Item, ItemAddOn,
-    ItemVariation, OrderFee, OrderPosition, SalesChannel, Voucher,
+    ItemBundle, ItemVariation, OrderFee, OrderPosition, SalesChannel, Voucher,
 )
 from pretix.base.models.discount import Discount, PositionInfo
 from pretix.base.models.event import Event, SubEvent
@@ -164,6 +164,18 @@ def get_line_price(price_after_voucher: Decimal, custom_price_input: Decimal, cu
                              base_price_is='gross' if is_bundled else 'auto')
 
     return price
+
+
+def get_bundled_price(bundle: ItemBundle, price_after_voucher: Decimal, custom_price_input: Decimal,
+                      custom_price_input_is_net: bool, tax_rule: TaxRule, invoice_address: InvoiceAddress) -> Decimal:
+    """
+    Per-unit gross price of a bundled position, given the price data of its parent position.
+    """
+    if not bundle.designated_price_percent:
+        return bundle.designated_price
+    parent_price = get_line_price(price_after_voucher, custom_price_input, custom_price_input_is_net, tax_rule,
+                                  invoice_address, Decimal('0.00'))
+    return bundle.resolve_designated_price(parent_price.net, 'net', invoice_address)
 
 
 def apply_discounts(event: Event, sales_channel: Union[str, SalesChannel],

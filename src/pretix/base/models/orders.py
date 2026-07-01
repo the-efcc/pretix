@@ -3419,9 +3419,9 @@ class CartPosition(AbstractPosition):
         else:
             return sort_key
 
-    def update_listed_price_and_voucher(self, voucher_only=False, max_discount=None):
+    def update_listed_price_and_voucher(self, voucher_only=False, max_discount=None, invoice_address=None):
         from pretix.base.services.pricing import (
-            get_listed_price, is_included_for_free,
+            get_bundled_price, get_listed_price, is_included_for_free,
         )
 
         if voucher_only:
@@ -3444,8 +3444,11 @@ class CartPosition(AbstractPosition):
                     listed_price = Decimal('0.00')
                     price_after_voucher = Decimal('0.00')
                 else:
-                    listed_price = bundle.designated_price
-                    price_after_voucher = bundle.designated_price
+                    parent = self.addon_to
+                    listed_price = price_after_voucher = get_bundled_price(
+                        bundle, parent.price_after_voucher, parent.custom_price_input,
+                        parent.custom_price_input_is_net, parent.item.tax_rule, invoice_address,
+                    )
 
         if listed_price != self.listed_price or price_after_voucher != self.price_after_voucher:
             self.listed_price = listed_price
