@@ -48,7 +48,7 @@ import dateutil.parser
 import django_redis
 from dateutil.tz import datetime_exists
 from django.conf import settings
-from django.core.exceptions import ValidationError
+from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.core.validators import (
     MaxLengthValidator, MinLengthValidator, MinValueValidator, RegexValidator,
 )
@@ -63,6 +63,7 @@ from django_countries.fields import Country
 from django_scopes import ScopedManager
 from i18nfield.fields import I18nCharField, I18nTextField
 
+from pretix.base.decimal import round_decimal
 from pretix.base.media import MEDIA_TYPES
 from pretix.base.models import Event, SubEvent
 from pretix.base.models.base import LoggedModel
@@ -835,14 +836,18 @@ class Item(LoggedModel):
         bundled_sum_tax = Decimal('0.00')
         if include_bundled:
             for b in self.bundles.all():
-                if b.designated_price and b.bundled_item.tax_rule_id != self.tax_rule_id:
+                designated = b.resolve_designated_price(
+                    price, parent_price_is=base_price_is,
+                    invoice_address=invoice_address, currency=currency,
+                )
+                if designated and b.bundled_item.tax_rule_id != self.tax_rule_id:
                     if b.bundled_variation:
-                        bprice = b.bundled_variation.tax(b.designated_price * b.count,
+                        bprice = b.bundled_variation.tax(designated * b.count,
                                                          base_price_is='gross',
                                                          invoice_address=invoice_address,
                                                          currency=currency)
                     else:
-                        bprice = b.bundled_item.tax(b.designated_price * b.count,
+                        bprice = b.bundled_item.tax(designated * b.count,
                                                     invoice_address=invoice_address,
                                                     base_price_is='gross',
                                                     currency=currency)
@@ -959,7 +964,7 @@ class Item(LoggedModel):
     @property
     def includes_mixed_tax_rate(self):
         for b in self.bundles.all():
-            if b.designated_price and b.bundled_item.tax_rule_id != self.tax_rule_id:
+            if (b.designated_price or b.designated_price_percent) and b.bundled_item.tax_rule_id != self.tax_rule_id:
                 return True
         return False
 
@@ -1267,16 +1272,20 @@ class ItemVariation(models.Model):
 
         if include_bundled:
             for b in self.item.bundles.all():
-                if b.designated_price and b.bundled_item.tax_rule_id != self.item.tax_rule_id:
+                designated = b.resolve_designated_price(
+                    price, parent_price_is=base_price_is,
+                    invoice_address=invoice_address, currency=currency,
+                )
+                if designated and b.bundled_item.tax_rule_id != self.item.tax_rule_id:
                     if b.bundled_variation:
-                        bprice = b.bundled_variation.tax(b.designated_price * b.count, base_price_is='gross',
+                        bprice = b.bundled_variation.tax(designated * b.count, base_price_is='gross',
                                                          currency=currency,
                                                          invoice_address=invoice_address)
                     else:
-                        bprice = b.bundled_item.tax(b.designated_price * b.count, base_price_is='gross',
+                        bprice = b.bundled_item.tax(designated * b.count, base_price_is='gross',
                                                     currency=currency,
                                                     invoice_address=invoice_address)
-                    compare_price = self.item.tax_rule.tax(b.designated_price * b.count, base_price_is='gross',
+                    compare_price = self.item.tax_rule.tax(designated * b.count, base_price_is='gross',
                                                            currency=currency, invoice_address=invoice_address)
                     t.net += bprice.net - compare_price.net
                     t.tax += bprice.tax - compare_price.tax
@@ -1501,8 +1510,12 @@ class ItemBundle(models.Model):
     :type bundled_variation: ItemVariation
     :param count: The number of items to bundle
     :type count: int
-    :param designated_price: The designated part price (optional)
-    :type designated_price: bool
+    :param designated_price: The designated part price as a fixed amount (optional).
+        Mutually exclusive with ``designated_price_percent``.
+    :type designated_price: Decimal
+    :param designated_price_percent: The designated part as a percentage (0–100) of the
+        parent product's net price (optional). Mutually exclusive with ``designated_price``.
+    :type designated_price_percent: Decimal
     """
     base_item = models.ForeignKey(
         Item,
@@ -1535,6 +1548,55 @@ class ItemBundle(models.Model):
                     'value will NOT be added to the base item\'s price.')
     )
 
+    @property
+    def designated_price_percent(self):
+        # Stored in pretix.efcc, as fields on upstream models would be pretixbase migrations
+        if hasattr(self, '_designated_price_percent'):
+            return self._designated_price_percent
+        try:
+            return self.price_percent.percent
+        except ObjectDoesNotExist:
+            return Decimal('0.00')
+
+    @designated_price_percent.setter
+    def designated_price_percent(self, value):
+        self._designated_price_percent = value or Decimal('0.00')
+
+    def save(self, *args, **kwargs):
+        super().save(*args, **kwargs)
+        if hasattr(self, '_designated_price_percent'):
+            from pretix.efcc.models import ItemBundlePricePercent
+            if self._designated_price_percent:
+                ItemBundlePricePercent.objects.update_or_create(
+                    bundle=self, defaults={'percent': self._designated_price_percent}
+                )
+            else:
+                ItemBundlePricePercent.objects.filter(bundle=self).delete()
+
+    def resolve_designated_price(self, parent_price, parent_price_is='auto', invoice_address=None, currency=None):
+        """
+        Return the per-unit gross amount designated to this bundled item. ``count`` is not applied.
+
+        A percentage is applied to the parent's net price and turned back into a gross amount with the
+        bundled item's own tax rule. ``parent_price`` is what the customer pays for the parent before the
+        bundled parts are split off, and ``parent_price_is`` is ``'gross'``, ``'net'`` or ``'auto'``, as
+        in ``TaxRule.tax``.
+        """
+        percent = self.designated_price_percent
+        if not percent:
+            return self.designated_price
+        currency = currency or self.base_item.event.currency
+        if parent_price_is != 'net' and self.base_item.tax_rule:
+            parent_price = self.base_item.tax_rule.tax(
+                parent_price, base_price_is=parent_price_is, invoice_address=invoice_address, currency=currency,
+            ).net
+        designated_net = parent_price * percent / Decimal('100')
+        if self.bundled_item.tax_rule:
+            return self.bundled_item.tax_rule.tax(
+                designated_net, base_price_is='net', invoice_address=invoice_address, currency=currency,
+            ).gross
+        return round_decimal(designated_net, currency)
+
     def clean(self):
         self.clean_count(self.count)
 
@@ -1563,6 +1625,17 @@ class ItemBundle(models.Model):
     def clean_count(count):
         if count < 0:
             raise ValidationError(_('The count needs to be equal to or greater than zero.'))
+
+    @staticmethod
+    def clean_designated_prices(bundles):
+        """
+        ``bundles`` holds ``(count, designated_price, designated_price_percent)`` for every bundle of one product.
+        """
+        if any(price and percent for count, price, percent in bundles):
+            raise ValidationError(_('You can only set one of the designated price fields, not both.'))
+        if sum(count * (percent or 0) for count, price, percent in bundles) > 100:
+            raise ValidationError(_('The combined designated price percentage of all bundled products cannot '
+                                    'exceed 100%.'))
 
 
 class Question(LoggedModel):

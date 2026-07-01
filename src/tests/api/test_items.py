@@ -512,6 +512,7 @@ def test_item_detail_bundles(token_client, organizer, event, team, item, categor
         "bundled_variation": None,
         "count": 1,
         "designated_price": '2.00',
+        "designated_price_percent": '0.0000',
     }]
     resp = token_client.get('/api/v1/organizers/{}/events/{}/items/{}/'.format(organizer.slug, event.slug,
                                                                                item.pk))
@@ -1714,7 +1715,8 @@ TEST_BUNDLE_RES = {
     "bundled_item": 0,
     "bundled_variation": None,
     "count": 1,
-    "designated_price": "2.00"
+    "designated_price": "2.00",
+    "designated_price_percent": "0.0000"
 }
 
 
@@ -1815,6 +1817,21 @@ def test_bundles_update(token_client, organizer, event, item, bundle):
     with scopes_disabled():
         a = ItemBundle.objects.get(pk=bundle.pk)
     assert a.count == 3
+
+
+@pytest.mark.django_db
+def test_bundles_percent(token_client, organizer, event, item, bundle):
+    url = '/api/v1/organizers/{}/events/{}/items/{}/bundles/'.format(organizer.slug, event.slug, item.pk)
+    resp = token_client.patch(url + '{}/'.format(bundle.pk), {"designated_price": "0.00", "designated_price_percent": "60.00"},
+                              format='json')
+    assert resp.status_code == 200
+    with scopes_disabled():
+        assert ItemBundle.objects.get(pk=bundle.pk).designated_price_percent == Decimal('60.00')
+        other = event.items.create(name='Other', default_price=1)
+
+    resp = token_client.post(url, {"bundled_item": other.pk, "count": 1, "designated_price_percent": "50.00"}, format='json')
+    assert resp.status_code == 400
+    assert 'cannot exceed 100%' in resp.content.decode()
 
 
 @pytest.mark.django_db
