@@ -627,7 +627,8 @@ class ItemCreateForm(I18nModelForm):
                                        multi_allowed=a.multi_allowed)
             for b in self.cleaned_data['copy_from'].bundles.all():
                 instance.bundles.create(bundled_item=b.bundled_item, bundled_variation=b.bundled_variation,
-                                        count=b.count, designated_price=b.designated_price)
+                                        count=b.count, designated_price=b.designated_price,
+                                        designated_price_percent=b.designated_price_percent)
             for pt in self.cleaned_data['copy_from'].program_times.all():
                 instance.program_times.create(start=pt.start, end=pt.end, location=pt.location)
 
@@ -1253,6 +1254,7 @@ class ItemBundleFormSet(I18nFormSet):
     def clean(self):
         super().clean()
         ivs = set()
+        percent_sum = Decimal('0.00')
         for i in range(0, self.total_form_count()):
             form = self.forms[i]
             if self.can_delete:
@@ -1270,6 +1272,15 @@ class ItemBundleFormSet(I18nFormSet):
                     raise ValidationError(_('You added the same bundled product twice.'))
 
                 ivs.add(form.cleaned_data['itemvar'])
+
+            pct = form.cleaned_data.get('designated_price_percent') or Decimal('0.00')
+            count = form.cleaned_data.get('count') or 1
+            percent_sum += pct * count
+
+        if percent_sum > 100:
+            raise ValidationError(_(
+                'The combined designated price percentage of all bundled products cannot exceed 100%.'
+            ))
 
 
 class ItemBundleForm(I18nModelForm):
@@ -1315,6 +1326,15 @@ class ItemBundleForm(I18nModelForm):
         if not self.cleaned_data.get('designated_price'):
             d['designated_price'] = Decimal('0.00')
             self.instance.designated_price = Decimal('0.00')
+        if not self.cleaned_data.get('designated_price_percent'):
+            d['designated_price_percent'] = Decimal('0.00')
+            self.instance.designated_price_percent = Decimal('0.00')
+
+        if d.get('designated_price') and d.get('designated_price_percent'):
+            raise ValidationError(_('You can only set one of the designated price fields, not both.'))
+        pct = d.get('designated_price_percent') or Decimal('0.00')
+        if pct and (pct < 0 or pct > 100):
+            raise ValidationError(_('The designated price percentage must be between 0 and 100.'))
 
         if 'itemvar' in self.cleaned_data:
             if '-' in self.cleaned_data['itemvar']:
@@ -1344,6 +1364,7 @@ class ItemBundleForm(I18nModelForm):
         fields = [
             'count',
             'designated_price',
+            'designated_price_percent',
         ]
 
 

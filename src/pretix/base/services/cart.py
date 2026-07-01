@@ -665,7 +665,24 @@ class CartManager:
                     if cp.addon_to.voucher_id and cp.addon_to.voucher.all_bundles_included:
                         listed_price = Decimal('0.00')
                     else:
-                        listed_price = bundle.designated_price
+                        parent_listed_price = get_listed_price(cp.addon_to.item, cp.addon_to.variation, cp.addon_to.subevent)
+                        # Use the parent's effective price (after voucher / custom price) so
+                        # percentage-based bundles split the actual amount the customer pays.
+                        if cp.addon_to.custom_price_input is not None and cp.addon_to.custom_price_input > (cp.addon_to.price_after_voucher or parent_listed_price):
+                            effective_parent_price = cp.addon_to.custom_price_input
+                            effective_parent_price_is = 'net' if cp.addon_to.custom_price_input_is_net else 'gross'
+                        elif cp.addon_to.price_after_voucher is not None:
+                            effective_parent_price = cp.addon_to.price_after_voucher
+                            effective_parent_price_is = 'auto'
+                        else:
+                            effective_parent_price = parent_listed_price
+                            effective_parent_price_is = 'auto'
+                        listed_price = bundle.resolve_designated_price(
+                            effective_parent_price,
+                            parent_price_is=effective_parent_price_is,
+                            invoice_address=self.invoice_address,
+                            currency=self.event.currency,
+                        )
                 else:
                     listed_price = cp.price
                 price_after_voucher = listed_price
@@ -854,7 +871,42 @@ class CartManager:
             # Fetch bundled items
             bundled = []
             db_bundles = list(item.bundles.all())
+            parent_listed_price = get_listed_price(item, variation, subevent) if db_bundles else None
             self._update_items_cache([b.bundled_item_id for b in db_bundles], [b.bundled_variation_id for b in db_bundles])
+
+            # Parse parent's custom price up-front so we can pass an effective parent price into
+            # percentage-based bundle resolution.
+            custom_price = None
+            if item.free_price and i.get('price'):
+                custom_price = re.sub('[^0-9.,]', '', str(i.get('price')))
+                if not custom_price:
+                    raise CartError(error_messages['price_not_a_number'])
+                try:
+                    custom_price = forms.DecimalField(localize=True).to_python(custom_price)
+                except:
+                    try:
+                        custom_price = Decimal(custom_price)
+                    except:
+                        raise CartError(error_messages['price_not_a_number'])
+                if custom_price > 99_999_999_999:
+                    raise CartError(error_messages['price_too_high'])
+
+            listed_price = parent_listed_price if parent_listed_price is not None else get_listed_price(item, variation, subevent)
+            if voucher:
+                price_after_voucher = voucher.calculate_price(listed_price)
+            else:
+                price_after_voucher = listed_price
+
+            # Effective parent price for percentage-based bundle resolution.
+            # ``custom_price`` is in net or gross depending on the event setting; we tell the
+            # resolver via ``parent_price_is`` so the conversion to net is correct.
+            if custom_price is not None and custom_price > price_after_voucher:
+                effective_parent_price = custom_price
+                effective_parent_price_is = 'net' if self.event.settings.display_net_prices else 'gross'
+            else:
+                effective_parent_price = price_after_voucher
+                effective_parent_price_is = 'auto'
+
             for bundle in db_bundles:
                 if bundle.bundled_item_id not in self._items_cache or (
                         bundle.bundled_variation_id and bundle.bundled_variation_id not in self._variations_cache
@@ -875,7 +927,12 @@ class CartManager:
                 if voucher and voucher.all_bundles_included:
                     bundled_price = Decimal('0.00')
                 else:
-                    bundled_price = bundle.designated_price
+                    bundled_price = bundle.resolve_designated_price(
+                        effective_parent_price,
+                        parent_price_is=effective_parent_price_is,
+                        invoice_address=self.invoice_address,
+                        currency=self.event.currency,
+                    )
 
                 bop = self.AddOperation(
                     count=bundle.count,
@@ -895,26 +952,6 @@ class CartManager:
                 )
                 self._check_item_constraints(bop)
                 bundled.append(bop)
-
-            listed_price = get_listed_price(item, variation, subevent)
-            if voucher:
-                price_after_voucher = voucher.calculate_price(listed_price)
-            else:
-                price_after_voucher = listed_price
-            custom_price = None
-            if item.free_price and i.get('price'):
-                custom_price = re.sub('[^0-9.,]', '', str(i.get('price')))
-                if not custom_price:
-                    raise CartError(error_messages['price_not_a_number'])
-                try:
-                    custom_price = forms.DecimalField(localize=True).to_python(custom_price)
-                except:
-                    try:
-                        custom_price = Decimal(custom_price)
-                    except:
-                        raise CartError(error_messages['price_not_a_number'])
-                if custom_price > 99_999_999_999:
-                    raise CartError(error_messages['price_too_high'])
 
             op = self.AddOperation(
                 count=i['count'],
@@ -1519,7 +1556,7 @@ class CartManager:
         for cp in positions:
             if cp.listed_price is None:
                 # migration from old system? also used in unit tests
-                cp.update_listed_price_and_voucher()
+                cp.update_listed_price_and_voucher(invoice_address=self.invoice_address)
                 cp.migrate_free_price_if_necessary()
 
             cp.update_line_price(self.invoice_address, [b for b in positions if b.addon_to_id == cp.pk and b.is_bundled])

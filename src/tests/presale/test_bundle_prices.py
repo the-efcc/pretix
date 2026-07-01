@@ -156,6 +156,113 @@ class BundlePricesTest(TestCase):
         assert op2.item == self.food
         assert op2.tax_rate == Decimal('7.00')
 
+    def test_percent_resolver_applies_to_net_parent_price(self):
+        # Parent's listed price (23) is configured as gross at 19% tax,
+        # so its net is 23 / 1.19 = 19.327731...
+        # 40% of net = 7.731092...
+        # The resolver converts back to gross using the bundled item's tax rule (7%):
+        # 7.731092 * 1.07 = 8.272269... → rounded to 8.27
+        with scopes_disabled():
+            self.bundle.designated_price = Decimal('0.00')
+            self.bundle.designated_price_percent = Decimal('40.00')
+            self.bundle.save()
+            assert self.bundle.resolve_designated_price(Decimal('23.00')) == Decimal('8.27')
+
+    def test_percent_resolver_with_net_listed_parent(self):
+        # When parent's tax rule treats its listed price as net,
+        # the percentage is applied directly to that net value.
+        with scopes_disabled():
+            self.tr19.price_includes_tax = False
+            self.tr19.save()
+            self.bundle.designated_price = Decimal('0.00')
+            self.bundle.designated_price_percent = Decimal('40.00')
+            self.bundle.save()
+            # parent_net = 23, 40% = 9.20, * 1.07 = 9.844 → 9.84
+            assert self.bundle.resolve_designated_price(Decimal('23.00')) == Decimal('9.84')
+
+    def test_percent_resolver_falls_back_to_fixed(self):
+        # With percent unset, the resolver returns the fixed designated_price unchanged.
+        with scopes_disabled():
+            assert self.bundle.designated_price_percent == Decimal('0.00')
+            assert self.bundle.resolve_designated_price(Decimal('23.00')) == Decimal('10.00')
+
+    def test_percent_simple_case(self):
+        with scopes_disabled():
+            self.bundle.designated_price = Decimal('0.00')
+            self.bundle.designated_price_percent = Decimal('40.00')
+            self.bundle.save()
+
+        # Verify correct price displayed on event page
+        response = self.client.get('/%s/%s/' % (self.orga.slug, self.event.slug))
+        self.assertContains(response, '23.00')
+
+        # Verify correct price being added to cart:
+        # bundle gross = 8.27 (40% of parent's net, taxed at 7%)
+        # parent gross = 23.00 - 8.27 = 14.73
+        self.client.post('/%s/%s/cart/add' % (self.orga.slug, self.event.slug), {
+            'item_%d' % self.ticket.id: '1'
+        }, follow=True)
+        with scopes_disabled():
+            cp1 = CartPosition.objects.get(is_bundled=False)
+            cp2 = CartPosition.objects.get(is_bundled=True)
+
+        assert cp1.item == self.ticket
+        assert cp1.price == Decimal('14.73')
+        assert cp2.item == self.food
+        assert cp2.price == Decimal('8.27')
+        # Customer-facing gross total is preserved.
+        assert cp1.price + cp2.price == Decimal('23.00')
+
+        # The bundled item's net is exactly 40% of the parent's original net:
+        # parent gross 23 / 1.19 = 19.33 (rounded), bundle net 8.27 / 1.07 = 7.73
+        # 7.73 / 19.33 ≈ 0.40
+        assert (cp2.price - cp2.tax_value).quantize(Decimal('0.01')) == Decimal('7.73')
+
+        # Make sure cart expires
+        cp1.expires = now() - datetime.timedelta(minutes=120)
+        cp1.save()
+        cp2.expires = now() - datetime.timedelta(minutes=120)
+        cp2.save()
+
+        # Verify price is kept if cart expires and order is sent
+        with scopes_disabled():
+            _perform_order(self.event, self._manual_payment(), [cp1.pk, cp2.pk], 'admin@example.org', 'en', None, {}, 'web')
+            op1 = OrderPosition.objects.get(is_bundled=False)
+            op2 = OrderPosition.objects.get(is_bundled=True)
+        assert op1.price == Decimal('14.73')
+        assert op1.item == self.ticket
+        assert op1.tax_rate == Decimal('19.00')
+        assert op2.price == Decimal('8.27')
+        assert op2.item == self.food
+        assert op2.tax_rate == Decimal('7.00')
+
+    def test_percent_with_net_listed_parent_end_to_end(self):
+        with scopes_disabled():
+            self.tr19.price_includes_tax = False
+            self.tr19.save()
+            self.tr7.price_includes_tax = False
+            self.tr7.save()
+            self.bundle.designated_price = Decimal('0.00')
+            self.bundle.designated_price_percent = Decimal('40.00')
+            self.bundle.save()
+
+        self.client.post('/%s/%s/cart/add' % (self.orga.slug, self.event.slug), {
+            'item_%d' % self.ticket.id: '1'
+        }, follow=True)
+        with scopes_disabled():
+            cp1 = CartPosition.objects.get(is_bundled=False)
+            cp2 = CartPosition.objects.get(is_bundled=True)
+
+        # Parent listed price of 23 is net. 40% of 23 = 9.20 net for bundle.
+        # bundle gross at 7% = 9.20 * 1.07 = 9.844 → 9.84
+        # The bundle position carries 9.84 gross. The parent's full gross
+        # (without subtraction) at 19% would be 27.37; subtracting 9.84
+        # leaves 17.53.
+        assert cp1.item == self.ticket
+        assert cp2.item == self.food
+        assert cp2.price == Decimal('9.84')
+        assert cp1.price == Decimal('17.53')
+
     def test_net_price_definitions(self):
         self.tr19.price_includes_tax = False
         self.tr19.save()

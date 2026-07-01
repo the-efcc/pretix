@@ -178,7 +178,7 @@ class InlineItemBundleSerializer(serializers.ModelSerializer):
     class Meta:
         model = ItemBundle
         fields = ('bundled_item', 'bundled_variation', 'count',
-                  'designated_price')
+                  'designated_price', 'designated_price_percent')
 
 
 class InlineItemAddOnSerializer(serializers.ModelSerializer):
@@ -198,7 +198,7 @@ class ItemBundleSerializer(serializers.ModelSerializer):
     class Meta:
         model = ItemBundle
         fields = ('id', 'bundled_item', 'bundled_variation', 'count',
-                  'designated_price')
+                  'designated_price', 'designated_price_percent')
 
     def validate(self, data):
         data = super().validate(data)
@@ -215,6 +215,12 @@ class ItemBundleSerializer(serializers.ModelSerializer):
         if full_data.get('bundled_item'):
             if full_data['bundled_item'].bundles.exists():
                 raise ValidationError(_("The bundled item must not have bundles on its own."))
+
+        if full_data.get('designated_price') and full_data.get('designated_price_percent'):
+            raise ValidationError(_("You can only set one of the designated price fields, not both."))
+        pct = full_data.get('designated_price_percent') or Decimal('0.00')
+        if pct and (pct < 0 or pct > 100):
+            raise ValidationError(_("The designated price percentage must be between 0 and 100."))
 
         return data
 

@@ -3243,7 +3243,7 @@ class CartPosition(AbstractPosition):
         else:
             return sort_key
 
-    def update_listed_price_and_voucher(self, voucher_only=False, max_discount=None):
+    def update_listed_price_and_voucher(self, voucher_only=False, max_discount=None, invoice_address=None):
         from pretix.base.services.pricing import (
             get_listed_price, is_included_for_free,
         )
@@ -3268,8 +3268,24 @@ class CartPosition(AbstractPosition):
                     listed_price = Decimal('0.00')
                     price_after_voucher = Decimal('0.00')
                 else:
-                    listed_price = bundle.designated_price
-                    price_after_voucher = bundle.designated_price
+                    parent_listed_price = get_listed_price(self.addon_to.item, self.addon_to.variation, self.addon_to.subevent)
+                    if self.addon_to.custom_price_input is not None and self.addon_to.custom_price_input > (self.addon_to.price_after_voucher or parent_listed_price):
+                        effective_parent_price = self.addon_to.custom_price_input
+                        effective_parent_price_is = 'net' if self.addon_to.custom_price_input_is_net else 'gross'
+                    elif self.addon_to.price_after_voucher is not None:
+                        effective_parent_price = self.addon_to.price_after_voucher
+                        effective_parent_price_is = 'auto'
+                    else:
+                        effective_parent_price = parent_listed_price
+                        effective_parent_price_is = 'auto'
+                    designated = bundle.resolve_designated_price(
+                        effective_parent_price,
+                        parent_price_is=effective_parent_price_is,
+                        invoice_address=invoice_address,
+                        currency=self.event.currency if self.event_id else None,
+                    )
+                    listed_price = designated
+                    price_after_voucher = designated
 
         if listed_price != self.listed_price or price_after_voucher != self.price_after_voucher:
             self.listed_price = listed_price

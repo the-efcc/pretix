@@ -63,6 +63,7 @@ from django_countries.fields import Country
 from django_scopes import ScopedManager
 from i18nfield.fields import I18nCharField, I18nTextField
 
+from pretix.base.decimal import round_decimal
 from pretix.base.media import MEDIA_TYPES
 from pretix.base.models import Event, SubEvent
 from pretix.base.models.base import LoggedModel
@@ -835,14 +836,18 @@ class Item(LoggedModel):
         bundled_sum_tax = Decimal('0.00')
         if include_bundled:
             for b in self.bundles.all():
-                if b.designated_price and b.bundled_item.tax_rule_id != self.tax_rule_id:
+                designated = b.resolve_designated_price(
+                    price, parent_price_is=base_price_is,
+                    invoice_address=invoice_address, currency=currency,
+                )
+                if designated and b.bundled_item.tax_rule_id != self.tax_rule_id:
                     if b.bundled_variation:
-                        bprice = b.bundled_variation.tax(b.designated_price * b.count,
+                        bprice = b.bundled_variation.tax(designated * b.count,
                                                          base_price_is='gross',
                                                          invoice_address=invoice_address,
                                                          currency=currency)
                     else:
-                        bprice = b.bundled_item.tax(b.designated_price * b.count,
+                        bprice = b.bundled_item.tax(designated * b.count,
                                                     invoice_address=invoice_address,
                                                     base_price_is='gross',
                                                     currency=currency)
@@ -979,7 +984,7 @@ class Item(LoggedModel):
     @property
     def includes_mixed_tax_rate(self):
         for b in self.bundles.all():
-            if b.designated_price and b.bundled_item.tax_rule_id != self.tax_rule_id:
+            if (b.designated_price or b.designated_price_percent) and b.bundled_item.tax_rule_id != self.tax_rule_id:
                 return True
         return False
 
@@ -1289,16 +1294,20 @@ class ItemVariation(models.Model):
 
         if include_bundled:
             for b in self.item.bundles.all():
-                if b.designated_price and b.bundled_item.tax_rule_id != self.item.tax_rule_id:
+                designated = b.resolve_designated_price(
+                    price, parent_price_is=base_price_is,
+                    invoice_address=invoice_address, currency=currency,
+                )
+                if designated and b.bundled_item.tax_rule_id != self.item.tax_rule_id:
                     if b.bundled_variation:
-                        bprice = b.bundled_variation.tax(b.designated_price * b.count, base_price_is='gross',
+                        bprice = b.bundled_variation.tax(designated * b.count, base_price_is='gross',
                                                          currency=currency,
                                                          invoice_address=invoice_address)
                     else:
-                        bprice = b.bundled_item.tax(b.designated_price * b.count, base_price_is='gross',
+                        bprice = b.bundled_item.tax(designated * b.count, base_price_is='gross',
                                                     currency=currency,
                                                     invoice_address=invoice_address)
-                    compare_price = self.item.tax_rule.tax(b.designated_price * b.count, base_price_is='gross',
+                    compare_price = self.item.tax_rule.tax(designated * b.count, base_price_is='gross',
                                                            currency=currency, invoice_address=invoice_address)
                     t.net += bprice.net - compare_price.net
                     t.tax += bprice.tax - compare_price.tax
@@ -1539,8 +1548,12 @@ class ItemBundle(models.Model):
     :type bundled_variation: ItemVariation
     :param count: The number of items to bundle
     :type count: int
-    :param designated_price: The designated part price (optional)
-    :type designated_price: bool
+    :param designated_price: The designated part price as a fixed amount (optional).
+        Mutually exclusive with ``designated_price_percent``.
+    :type designated_price: Decimal
+    :param designated_price_percent: The designated part as a percentage (0–100) of the
+        parent product's gross price (optional). Mutually exclusive with ``designated_price``.
+    :type designated_price_percent: Decimal
     """
     base_item = models.ForeignKey(
         Item,
@@ -1572,9 +1585,83 @@ class ItemBundle(models.Model):
                     'gross price. This might be important in cases of mixed taxation, but can be kept blank otherwise. This '
                     'value will NOT be added to the base item\'s price.')
     )
+    designated_price_percent = models.DecimalField(
+        default=Decimal('0.00'), blank=True,
+        decimal_places=4, max_digits=7,
+        verbose_name=_('Designated price part (percentage)'),
+        help_text=_('Alternative to the fixed designated price part: a percentage (0–100) of the parent product\'s '
+                    'net (without-tax) price. The bundled item\'s gross price is derived from this net amount using '
+                    'its own tax rate. Only one of the two designated price fields may be set at a time.'),
+    )
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=(
+                    models.Q(designated_price=Decimal('0.00')) |
+                    models.Q(designated_price_percent=Decimal('0.00'))
+                ),
+                name='itembundle_designated_price_one_of',
+            ),
+        ]
+
+    def resolve_designated_price(self, parent_price, parent_price_is='auto',
+                                  invoice_address=None, currency=None):
+        """
+        Return the per-unit gross amount designated to this bundled item, given the
+        parent product's effective price at cart-add time. Quantity (``count``) is
+        NOT applied.
+
+        When ``designated_price_percent`` is set, the percentage is applied to the
+        parent's *net* (without-tax) price so the split is meaningful regardless
+        of the parent's tax rate. The result is converted back to a gross amount
+        using the bundled item's own tax rule, because the rest of the pipeline
+        interprets ``designated_price`` as gross.
+
+        ``parent_price`` should be the price the customer pays for the parent
+        (after voucher discount and free-price overrides). ``parent_price_is``
+        tells us whether that price is ``'gross'``, ``'net'``, or should be
+        interpreted via the parent tax rule's ``price_includes_tax`` setting
+        (``'auto'``). ``invoice_address`` is forwarded to ``TaxRule.tax`` so
+        that address-dependent rates (custom rules, EU reverse charge, etc.) are
+        honored.
+        """
+        if not self.designated_price_percent:
+            return self.designated_price or Decimal('0.00')
+        if parent_price is None:
+            return Decimal('0.00')
+
+        if currency is None and self.base_item_id:
+            currency = self.base_item.event.currency
+
+        parent_tax_rule = self.base_item.tax_rule if self.base_item_id else None
+        if parent_tax_rule:
+            parent_net = parent_tax_rule.tax(
+                parent_price, base_price_is=parent_price_is,
+                invoice_address=invoice_address, currency=currency,
+            ).net
+        else:
+            parent_net = Decimal(parent_price)
+
+        designated_net = parent_net * self.designated_price_percent / Decimal('100')
+
+        bundled_tax_rule = self.bundled_item.tax_rule if self.bundled_item_id else None
+        if bundled_tax_rule:
+            designated_gross = bundled_tax_rule.tax(
+                designated_net, base_price_is='net',
+                invoice_address=invoice_address, currency=currency,
+            ).gross
+        else:
+            designated_gross = round_decimal(designated_net, currency) if currency else designated_net
+
+        return designated_gross
 
     def clean(self):
         self.clean_count(self.count)
+        if self.designated_price and self.designated_price_percent:
+            raise ValidationError(_('You can only set one of the designated price fields, not both.'))
+        if self.designated_price_percent and (self.designated_price_percent < 0 or self.designated_price_percent > 100):
+            raise ValidationError(_('The designated price percentage must be between 0 and 100.'))
 
     def describe(self):
         if self.count == 1:
