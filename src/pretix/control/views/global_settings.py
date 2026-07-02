@@ -85,6 +85,12 @@ class UpdateCheckView(StaffMemberRequiredMixin, FormView):
 
     def form_valid(self, form):
         form.save()
+        if not form.cleaned_data.get('update_check_perform'):
+            # Update checks are disabled: no future check will run to clear a stale
+            # "update available" warning, so clear it now to stop the notification
+            # bell from staying red forever (see #8).
+            gs = GlobalSettingsObject()
+            gs.settings.set('update_check_result_warning', False)
         messages.success(self.request, _('Your changes have been saved.'))
         return super().form_valid(form)
 
