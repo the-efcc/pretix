@@ -668,6 +668,16 @@ class RedeemView(NoSearchIndexViewMixin, EventViewMixin, CartMixin, TemplateView
         context['voucher'] = self.voucher
         context['max_times'] = self.voucher.max_usages - self.voucher.redeemed
 
+        if self.request.event.settings.voucher_show_frontpage_text:
+            from pretix.base.services.placeholders import PlaceholderContext
+            templating_context = PlaceholderContext(
+                event_or_subevent=self.subevent or self.request.event, event=self.request.event
+            )
+            if self.subevent:
+                context['frontpage_text'] = templating_context.format(str(self.subevent.frontpage_text))
+            else:
+                context['frontpage_text'] = templating_context.format(str(self.request.event.settings.frontpage_text))
+
         # Fetch all items
         items, display_add_to_cart = get_grouped_items(
             self.request.event,

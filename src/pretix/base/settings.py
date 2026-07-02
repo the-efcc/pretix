@@ -3409,6 +3409,17 @@ Your {organizer} team"""))  # noqa: W291
                         "how to obtain a voucher code.")
         )
     },
+    'voucher_show_frontpage_text': {
+        'default': 'False',
+        'type': bool,
+        'serializer_class': serializers.BooleanField,
+        'form_class': forms.BooleanField,
+        'form_kwargs': dict(
+            label=_("Show event description on voucher redemption page"),
+            help_text=_("If enabled, the event description shown on the shop front page will also be shown to "
+                        "customers who arrive via a voucher link or enter a voucher code."),
+        )
+    },
     'attendee_data_explanation_text': {
         'default': '',
         'type': LazyI18nString,

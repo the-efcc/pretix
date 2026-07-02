@@ -37,6 +37,12 @@
         {% endif %}
     {% endif %}
 
+    {% if frontpage_text %}
+        <div class="event-description">
+            {{ frontpage_text|rich_text }}
+        </div>
+    {% endif %}
+
     <p>
     {% if options == 0 and not seating_available %}
         {% if request.event.has_subevents and not voucher.subevent %}

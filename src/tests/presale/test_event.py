@@ -823,6 +823,17 @@ class VoucherRedeemItemDisplayTest(EventTestMixin, SoupTest):
         assert "Early-bird" in html.rendered_content
         assert "12.00" in html.rendered_content
 
+    def test_frontpage_text_hidden_by_default(self):
+        self.event.settings.frontpage_text = 'This is a wonderful event.'
+        html = self.client.get('/%s/%s/redeem?voucher=%s' % (self.orga.slug, self.event.slug, self.v.code))
+        assert "This is a wonderful event." not in html.rendered_content
+
+    def test_frontpage_text_shown_when_enabled(self):
+        self.event.settings.frontpage_text = 'This is a wonderful event.'
+        self.event.settings.voucher_show_frontpage_text = True
+        html = self.client.get('/%s/%s/redeem?voucher=%s' % (self.orga.slug, self.event.slug, self.v.code))
+        assert "This is a wonderful event." in html.rendered_content
+
     def test_specific_item(self):
         self.v.item = self.item
         self.v.quota = None
