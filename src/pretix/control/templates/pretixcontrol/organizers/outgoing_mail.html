@@ -122,6 +122,22 @@
                     </div>
                 {% endif %}
             </div>
+            {% if can_retry %}
+                <form method="post" class="mail-retry-form">
+                    {% csrf_token %}
+                    <button type="submit" name="action" value="retry" class="btn btn-default">
+                        <span class="fa fa-repeat"></span> {% trans "Retry sending" %}
+                    </button>
+                    {% if order_email_differs %}
+                        <button type="submit" name="action" value="retry_order_email" class="btn btn-default">
+                            <span class="fa fa-repeat"></span>
+                            {% blocktrans trimmed with email=mail.order.email %}
+                                Retry, sending to the order's current address ({{ email }})
+                            {% endblocktrans %}
+                        </button>
+                    {% endif %}
+                </form>
+            {% endif %}
         </div>
     </div>
     <div>

@@ -31,7 +31,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404, redirect
 from django.urls import reverse
 from django.utils.functional import cached_property
-from django.utils.translation import ngettext
+from django.utils.translation import gettext_lazy as _, ngettext
 from django.views import View
 from django.views.generic import DetailView, ListView
 
@@ -126,7 +126,46 @@ class OutgoingMailDetailView(OrganizerDetailViewMixin, OrganizerPermissionRequir
             from_name = make_header(decode_header(from_name))
         ctx['sender'] = "{} <{}>".format(from_name, from_email) if from_name else from_email
 
+        ctx['can_retry'] = self.object.status in OutgoingMail.STATUS_LIST_RETRYABLE
+        order = self.object.order
+        ctx['order_email_differs'] = bool(
+            order and order.email and order.email not in self.object.to
+        )
         return ctx
+
+    @transaction.atomic
+    def post(self, request, *args, **kwargs):
+        self.object = self.get_object()
+        if self.object.status not in OutgoingMail.STATUS_LIST_RETRYABLE:
+            messages.error(request, _('This email can no longer be retried.'))
+            return redirect(self._detail_url())
+
+        to_current_order_email = request.POST.get('action') == 'retry_order_email'
+        if to_current_order_email:
+            order = self.object.order
+            if not order or not order.email:
+                messages.error(request, _('This email is not linked to an order with a contact address.'))
+                return redirect(self._detail_url())
+            self.object.to = [order.email]
+
+        self.object.status = OutgoingMail.STATUS_QUEUED
+        self.object.sent = None
+        self.object.save()
+        self.request.organizer.log_action(
+            'pretix.organizer.outgoingmails.retried', user=self.request.user, data={
+                'mails': [self.object.pk],
+                'to_current_order_email': to_current_order_email,
+            }
+        )
+        mail_send_task.apply_async(kwargs={"outgoing_mail": self.object.pk})
+        messages.success(request, _('A retry of this email was scheduled.'))
+        return redirect(self._detail_url())
+
+    def _detail_url(self):
+        return reverse('control:organizer.outgoingmail', kwargs={
+            'organizer': self.request.organizer.slug,
+            'mail': self.object.pk,
+        })
 
 
 class OutgoingMailBulkAction(OutgoingMailQueryMixin, OrganizerPermissionRequiredMixin, OrganizerDetailViewMixin, View):
