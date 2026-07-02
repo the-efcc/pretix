@@ -1151,6 +1151,19 @@ def _order_placed_email_attendee(event: Event, order: Order, position: OrderPosi
     )
 
 
+@receiver(order_valid_if_pending, dispatch_uid="pretixbase_order_valid_if_pending_by_provider")
+def order_valid_if_pending_by_provider(sender, payments=None, **kwargs):
+    """
+    Mark an order as valid-if-pending (i.e. non-expiring, treated as confirmed) if any of the
+    selected payment providers has the ``_valid_if_pending`` setting enabled (see #14).
+    """
+    for p in (payments or []):
+        prov = p.get('pprov')
+        if prov and prov.settings.get('_valid_if_pending', as_type=bool, default=False):
+            return True
+    return False
+
+
 def _perform_order(event: Event, payment_requests: List[dict], position_ids: List[str],
                    email: str, locale: str, address: int, meta_info: dict=None, sales_channel: str='web',
                    shown_total=None, customer=None, api_meta: dict=None, tax_rounding_mode=None):

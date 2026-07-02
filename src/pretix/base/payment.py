@@ -513,6 +513,14 @@ class BasePaymentProvider:
                              'they have chosen this payment method.'),
                  required=False,
              )),
+            ('_valid_if_pending',
+             forms.BooleanField(
+                 label=_('Do not expire orders using this payment method'),
+                 help_text=_('Orders placed with this payment method will be treated as confirmed even while the '
+                             'payment is still pending and will not expire. This is useful e.g. for on-site cash '
+                             'payments, where the order should stay valid until the event.'),
+                 required=False,
+             )),
         ])
         d['_restricted_countries']._as_type = list
         d['_restrict_to_sales_channels']._as_type = list

@@ -188,6 +188,26 @@ class CheckoutTestCase(BaseCheckoutTestCase, TimemachineTestMixin, TestCase):
         self.assertRedirects(response, '/%s/%s/?require_cookie=true' % (self.orga.slug, self.event.slug),
                              target_status_code=200)
 
+    def test_valid_if_pending_payment_provider(self):
+        self.event.settings.set('payment_banktransfer__valid_if_pending', True)
+        with scopes_disabled():
+            CartPosition.objects.create(
+                event=self.event, cart_id=self.session_key, item=self.ticket,
+                price=23, expires=now() + timedelta(minutes=10)
+            )
+        self.client.post('/%s/%s/checkout/questions/' % (self.orga.slug, self.event.slug), {
+            'email': 'admin@localhost',
+            'transmission_type': 'email',
+        }, follow=True)
+        self.client.post('/%s/%s/checkout/payment/' % (self.orga.slug, self.event.slug), {
+            'payment': 'banktransfer',
+        }, follow=True)
+        self.client.post('/%s/%s/checkout/confirm/' % (self.orga.slug, self.event.slug), follow=True)
+        with scopes_disabled():
+            o = Order.objects.last()
+            assert o.status == Order.STATUS_PENDING
+            assert o.valid_if_pending
+
     def test_reverse_charge(self):
         self.tr19.eu_reverse_charge = True
         self.tr19.home_country = Country('DE')
