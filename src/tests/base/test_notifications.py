@@ -28,7 +28,8 @@ from django.utils.timezone import now
 from django_scopes import scope
 
 from pretix.base.models import (
-    Event, Item, Order, OrderPosition, Organizer, User,
+    Event, Item, Order, OrderPosition, Organizer, Question, QuestionAnswer,
+    User,
 )
 
 
@@ -84,6 +85,22 @@ def test_notification_trigger_event_specific(event, order, user, django_capture_
         order.log_action('pretix.event.order.paid', {})
     assert len(djmail.outbox) == 1
     assert djmail.outbox[0].subject.endswith("DUMMY: Order FOO has been marked as paid.")
+
+
+@pytest.mark.django_db
+def test_notification_new_order_includes_answers(event, order, user, django_capture_on_commit_callbacks):
+    djmail.outbox = []
+    with scope(organizer=event.organizer):
+        q = event.questions.create(question='Your shirt size?', type=Question.TYPE_STRING)
+        QuestionAnswer.objects.create(orderposition=order.positions.first(), question=q, answer='XL')
+    user.notification_settings.create(
+        method='mail', event=event, action_type='pretix.event.order.placed', enabled=True
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        order.log_action('pretix.event.order.placed', {})
+    assert len(djmail.outbox) == 1
+    assert 'Your shirt size?' in djmail.outbox[0].body
+    assert 'XL' in djmail.outbox[0].body
 
 
 @pytest.mark.django_db

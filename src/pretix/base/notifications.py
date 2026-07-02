@@ -224,16 +224,46 @@ class ParametrizedOrderNotificationType(NotificationType):
         return n
 
 
+class NewOrderNotificationType(ParametrizedOrderNotificationType):
+    """
+    Like ParametrizedOrderNotificationType, but also lists the answers the customer gave to the
+    event's questions, so organizers get the full picture directly in the notification.
+    """
+
+    def build_notification(self, logentry: LogEntry):
+        n = super().build_notification(logentry)
+        order = logentry.content_object
+        lines = []
+        positions = order.positions.select_related('item', 'variation').prefetch_related(
+            'answers', 'answers__question'
+        )
+        for pos in positions:
+            answers = list(pos.answers.all())
+            if not answers:
+                continue
+            label = str(pos.item.name)
+            if pos.variation:
+                label += ' – ' + str(pos.variation)
+            if pos.attendee_name:
+                label += ' (' + pos.attendee_name + ')'
+            lines.append(label)
+            for a in answers:
+                lines.append('  {}: {}'.format(a.question.question, str(a)))
+        if lines:
+            n.add_attribute(_('Answers'), '\n'.join(lines))
+        return n
+
+
 @receiver(register_notification_types, dispatch_uid="base_register_default_notification_types")
 def register_default_notification_types(sender, **kwargs):
     return (
-        ParametrizedOrderNotificationType(
+        NewOrderNotificationType(
             sender,
             'pretix.event.order.placed',
             _('New order placed'),
             _('A new order has been placed: {order.code}'),
         ),
-        ParametrizedOrderNotificationType(
+        NewOrderNotificationType(
             sender,
             'pretix.event.order.placed.require_approval',
             _('New order requires approval'),
