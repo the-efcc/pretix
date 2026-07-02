@@ -525,6 +525,40 @@ class OrganizerTest(SoupTest):
         assert m1.status == OutgoingMail.STATUS_SENT
         assert m2.status in (OutgoingMail.STATUS_SENT, OutgoingMail.STATUS_QUEUED)
 
+    def test_outgoing_mails_retry_to_order_email(self):
+        from decimal import Decimal
+
+        from pretix.base.models import Order
+
+        with scopes_disabled():
+            order = Order.objects.create(
+                code='FOO', event=self.event1, email='fixed@example.com',
+                status=Order.STATUS_PENDING, locale='en',
+                datetime=datetime.datetime(2013, 12, 26, tzinfo=datetime.timezone.utc),
+                expires=datetime.datetime(2013, 12, 27, tzinfo=datetime.timezone.utc),
+                sales_channel=self.orga1.sales_channels.get(identifier='web'),
+                total=Decimal('0.00'),
+            )
+            m = OutgoingMail.objects.create(
+                organizer=self.orga1,
+                event=self.event1,
+                order=order,
+                status=OutgoingMail.STATUS_FAILED,
+                to=['typo@example.com'],
+                subject='Test',
+                body_plain='Test',
+                sender='sender@example.com',
+                headers={},
+            )
+        resp = self.client.post(
+            '/control/organizer/%s/outgoingmail/%d/' % (self.orga1.slug, m.pk),
+            data={"action": "retry_order_email"},
+        )
+        assert resp.status_code == 302
+        m.refresh_from_db()
+        assert m.to == ['fixed@example.com']
+        assert m.status in (OutgoingMail.STATUS_SENT, OutgoingMail.STATUS_QUEUED)
+
     def test_outgoing_mails_abort(self):
         m1 = OutgoingMail.objects.create(
             organizer=self.orga1,
