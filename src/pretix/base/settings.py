@@ -2296,6 +2296,17 @@ DEFAULTS = {
             help_text=_("If you set this, the footer contact link will point here instead of using the email address above.")
         )
     },
+    'location_link': {
+        'default': None,
+        'type': str,
+        'form_class': forms.URLField,
+        'form_kwargs': dict(
+            label=_("Location link"),
+            help_text=_("If you set this, the event location shown to customers will link here, e.g. to a "
+                        "map service such as Google Maps or OpenStreetMap."),
+        ),
+        'serializer_class': serializers.URLField,
+    },
     'imprint_url': {
         'default': None,
         'type': str,

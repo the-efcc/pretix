@@ -597,6 +597,7 @@ class EventSettingsForm(EventSettingsValidationMixin, FormPlaceholderMixin, Sett
     )
 
     auto_fields = [
+        'location_link',
         'imprint_url',
         'checkout_email_helptext',
         'presale_has_ended_text',
