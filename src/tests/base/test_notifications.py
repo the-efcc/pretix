@@ -87,6 +87,23 @@ def test_notification_trigger_event_specific(event, order, user, django_capture_
 
 
 @pytest.mark.django_db
+def test_notification_trigger_email_error(event, order, user, django_capture_on_commit_callbacks):
+    djmail.outbox = []
+    user.notification_settings.create(
+        method='mail', event=event, action_type='pretix.event.order.email.error', enabled=True
+    )
+    with django_capture_on_commit_callbacks(execute=True):
+        order.log_action('pretix.event.order.email.error', {
+            'subject': 'Connection refused',
+            'message': 'Connection refused',
+            'recipient': '',
+            'invoices': [],
+        })
+    assert len(djmail.outbox) == 1
+    assert 'could not be delivered' in djmail.outbox[0].body
+
+
+@pytest.mark.django_db
 def test_notification_trigger_global(event, order, user, django_capture_on_commit_callbacks):
     djmail.outbox = []
     user.notification_settings.create(
