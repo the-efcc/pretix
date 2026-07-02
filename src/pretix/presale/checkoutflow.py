@@ -1510,6 +1510,24 @@ class PaymentStep(CartMixin, TemplateFlowStep):
                     # is_allowed might have changed, e.g. after add-on selection
                     self.cart_session['payments'] = [p for p in self.cart_session['payments'] if p['provider'] != provider.identifier]
 
+        # If exactly one payment provider is available and it does not require any input from the customer,
+        # select it automatically and skip the payment step (see #11).
+        if self.request.event.settings.payment_auto_select_single:
+            available = [
+                provider for provider in self.request.event.get_payment_providers().values()
+                if provider.is_enabled
+                and not (provider.is_implicit(request) if callable(provider.is_implicit) else provider.is_implicit)
+                and self._is_allowed(provider, request)
+            ]
+            if len(available) == 1 and not available[0].payment_form(request).fields:
+                provider = available[0]
+                if provider.identifier in used_providers:
+                    return False
+                if not self.cart_session.get('payments'):
+                    if provider.checkout_prepare(request, self.get_cart()) is True:
+                        add_payment_to_cart(request, provider, None, None, None)
+                        return False
+
         return True
 
     def get(self, request):

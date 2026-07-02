@@ -188,6 +188,32 @@ class CheckoutTestCase(BaseCheckoutTestCase, TimemachineTestMixin, TestCase):
         self.assertRedirects(response, '/%s/%s/?require_cookie=true' % (self.orga.slug, self.event.slug),
                              target_status_code=200)
 
+    def test_auto_select_single_payment_provider(self):
+        with scopes_disabled():
+            CartPosition.objects.create(
+                event=self.event, cart_id=self.session_key, item=self.ticket,
+                price=23, expires=now() + timedelta(minutes=10)
+            )
+
+        # By default, the payment step is shown so the customer can pick a method.
+        response = self.client.post('/%s/%s/checkout/questions/' % (self.orga.slug, self.event.slug), {
+            'email': 'admin@localhost',
+            'transmission_type': 'email',
+        }, follow=True)
+        self.assertRedirects(response, '/%s/%s/checkout/payment/' % (self.orga.slug, self.event.slug),
+                             target_status_code=200)
+
+        # With the setting enabled and only one input-less provider (bank transfer) available, the payment
+        # step is skipped and the provider is auto-selected.
+        self.event.settings.set('payment_auto_select_single', True)
+        response = self.client.get('/%s/%s/checkout/payment/' % (self.orga.slug, self.event.slug), follow=True)
+        self.assertRedirects(response, '/%s/%s/checkout/confirm/' % (self.orga.slug, self.event.slug),
+                             target_status_code=200)
+        assert [p['provider'] for p in self._get_cart_session().get('payments', [])] == ['banktransfer']
+
+    def _get_cart_session(self):
+        return self.client.session['carts'][self.session_key]
+
     def test_reverse_charge(self):
         self.tr19.eu_reverse_charge = True
         self.tr19.home_country = Country('DE')
