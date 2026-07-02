@@ -1124,6 +1124,7 @@ class MailSettingsForm(FormPlaceholderMixin, SettingsForm):
         'mail_attachment_new_order',
         'mail_attach_ical_paid_only',
         'mail_attach_ical_description',
+        'mail_order_placed_paid_merge',
     ]
 
     mail_sales_channel_placed_paid = forms.MultipleChoiceField(

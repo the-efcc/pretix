@@ -44,10 +44,11 @@ def register_ticket_outputs(sender, **kwargs):
 @receiver(register_payment_providers, dispatch_uid="payment_dummy")
 def register_payment_provider(sender, **kwargs):
     from .payment import (
-        DummyFullRefundablePaymentProvider,
+        DummyFullRefundablePaymentProvider, DummyInstantPaymentProvider,
         DummyPartialRefundablePaymentProvider, DummyPaymentProvider,
     )
-    return [DummyPaymentProvider, DummyFullRefundablePaymentProvider, DummyPartialRefundablePaymentProvider]
+    return [DummyPaymentProvider, DummyInstantPaymentProvider, DummyFullRefundablePaymentProvider,
+            DummyPartialRefundablePaymentProvider]
 
 
 class DummyOrdersExporter(BaseExporter):
