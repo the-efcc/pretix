@@ -8,7 +8,11 @@
             {% icon "map-marker" %}
         </div>
         <p>
-            {{ ev.location|linebreaksbr }}
+            {% if ev.settings.location_link %}
+                <a href="{{ ev.settings.location_link }}" target="_blank" rel="noopener">{{ ev.location|linebreaksbr }}</a>
+            {% else %}
+                {{ ev.location|linebreaksbr }}
+            {% endif %}
         </p>
     </div>
 {% endif %}
