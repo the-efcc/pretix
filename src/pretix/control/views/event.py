@@ -82,6 +82,7 @@ from pretix.base.models import Event, LogEntry, Order, TaxRule, Voucher
 from pretix.base.models.event import EventMetaValue
 from pretix.base.services import tickets
 from pretix.base.services.invoices import build_preview_invoice_pdf
+from pretix.base.services.mail import SendMailException, mail
 from pretix.base.signals import register_ticket_outputs
 from pretix.base.templatetags.rich_text import markdown_compile_email
 from pretix.control.forms.event import (
@@ -808,6 +809,8 @@ class MailSettings(EventSettingsViewMixin, EventSettingsFormView):
 
     @transaction.atomic
     def post(self, request, *args, **kwargs):
+        if 'test_email' in request.POST:
+            return self.send_test_email(request)
         form = self.get_form()
         if form.is_valid():
             form.save()
@@ -822,6 +825,30 @@ class MailSettings(EventSettingsViewMixin, EventSettingsFormView):
         else:
             messages.error(self.request, _('We could not save your changes. See below for details.'))
             return self.get(request)
+
+    def send_test_email(self, request):
+        recipient = request.user.email
+        try:
+            mail(
+                recipient,
+                _('Test email'),
+                LazyI18nString.from_gettext(gettext_noop(
+                    'This is a test email to check the email configuration of {event}. '
+                    'If you received this message, sending emails works correctly.'
+                )),
+                {'event': str(request.event.name)},
+                event=request.event,
+                locale=request.event.settings.locale,
+            )
+        except SendMailException as e:
+            messages.error(request, _('The test email could not be sent: {error}').format(error=str(e)))
+        else:
+            messages.success(
+                request,
+                _('We have sent a test email to {email}. If it does not arrive within a few minutes, please '
+                  'check your email configuration.').format(email=recipient)
+            )
+        return redirect(self.get_success_url())
 
 
 class MailSettingsSetup(EventPermissionRequiredMixin, MailSettingsSetupView):
