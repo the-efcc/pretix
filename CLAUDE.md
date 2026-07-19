@@ -13,6 +13,28 @@ Remotes:
 **IMPORTANT: NEVER open a pull request against upstream (`pretix/pretix`).**
 All PRs go to our fork: <https://github.com/the-efcc/pretix>.
 
+## Branch model
+
+| Branch | Role | Rules |
+| --- | --- | --- |
+| `master` | Pure mirror of `upstream/master` | Fast-forward only. Never commit to it, never force-push it. |
+| `efcc` | The product branch: `master` + all our patches. This is what gets deployed. | Forward-only: never rebase it, never force-push it. Upstream changes land via merges of `master`. |
+| feature branches | One per feature/fix, branched from `efcc` | Open PRs against `efcc`. Rebasing a feature branch is fine as long as nothing else is branched from it. |
+
+**All feature work starts from `efcc`, and all PRs target `efcc`** — not
+`master`. `master` exists only so we can fast-forward cleanly from upstream
+and diff our divergence against pristine upstream at any time.
+
+### Syncing with upstream
+
+Run `scripts/sync-upstream.sh`. It fast-forwards `master` from
+`upstream/master`, then merges `master` into `efcc`, and pushes both. Neither
+branch is ever force-pushed, so open PRs are never disturbed by a sync.
+
+If the merge into `efcc` conflicts, resolve the conflicts, commit, and push
+`efcc`. Running `git config rerere.enabled true` once is recommended so
+recurring conflict resolutions are remembered and replayed automatically.
+
 ## Development environment
 
 Everything runs through [devenv](https://devenv.sh/). Enter the shell with
