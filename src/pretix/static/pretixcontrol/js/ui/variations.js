@@ -58,6 +58,52 @@ $(function () {
         })
     }
 
+    function field_suffix(name) {
+        // Turn "prefix-3-default_price" into "default_price"
+        var m = name && name.match(/-\d+-(.+)$/);
+        return m ? m[1] : null;
+    }
+
+    function clone_variation($src) {
+        // Add a fresh variation form and copy the source's values into it.
+        $("#item_variations [data-formset-add]").first().click();
+        var $new = $("#item_variations [data-formset-body] > [data-formset-form]").last();
+        $src.find(":input").each(function () {
+            var suffix = field_suffix(this.name);
+            if (!suffix || suffix === "id" || suffix === "DELETE" || suffix === "ORDER") {
+                return;
+            }
+            var source = this;
+            var $target = $new.find(":input").filter(function () {
+                if (field_suffix(this.name) !== suffix) {
+                    return false;
+                }
+                // Checkbox/radio groups (e.g. sales channels) share a name, so match on value too.
+                if (source.type === "checkbox" || source.type === "radio") {
+                    return this.value === source.value;
+                }
+                return true;
+            });
+            if (!$target.length) {
+                return;
+            }
+            if (source.type === "checkbox" || source.type === "radio") {
+                $target.prop("checked", source.checked);
+            } else {
+                $target.val($(source).val());
+            }
+        });
+        $new.prop("open", true);
+        $new.find(":input").first().trigger("change");
+        update_variation_summary($new);
+        return $new;
+    }
+
+    $("#item_variations").on("click", "[data-variation-clone]", function (e) {
+        e.preventDefault();
+        clone_variation($(this).closest("[data-formset-form]"));
+    });
+
     $("#item_variations [data-formset-form]").each(function () {
         var $el = $(this);
         update_variation_summary($el);
