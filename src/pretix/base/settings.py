@@ -1104,6 +1104,18 @@ DEFAULTS = {
                         "themselves.")
         )
     },
+    'payment_auto_select_single': {
+        'default': 'False',
+        'type': bool,
+        'form_class': forms.BooleanField,
+        'serializer_class': serializers.BooleanField,
+        'write_permission': 'event.settings.payment:write',
+        'form_kwargs': dict(
+            label=_('Skip payment method selection when only one is available'),
+            help_text=_("If only a single payment method is available and it does not require any input from the "
+                        "customer, it will be selected automatically and the payment selection step will be skipped."),
+        )
+    },
     'payment_giftcard__enabled': {
         'default': 'True',
         'type': bool,

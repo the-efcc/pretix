@@ -852,6 +852,7 @@ class PaymentSettingsForm(EventSettingsValidationMixin, SettingsForm):
         'payment_term_expire_delay_days',
         'payment_term_accept_late',
         'payment_pending_hidden',
+        'payment_auto_select_single',
         'payment_explanation',
         'tax_rule_payment',
     ]
