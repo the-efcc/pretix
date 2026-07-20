@@ -18,7 +18,7 @@ All PRs go to our fork: <https://github.com/the-efcc/pretix>.
 | Branch | Role | Rules |
 | --- | --- | --- |
 | `master` | Pure mirror of `upstream/master` | Fast-forward only. Never commit to it, never force-push it. |
-| `efcc` | The product branch: `master` + all our patches. This is what gets deployed. | Forward-only: never rebase it, never force-push it. Upstream changes land via merges of `master`. |
+| `efcc` | The product branch: `master` + all our patches. This is what gets deployed. | Forward-only: never rebase it, never force-push it. Upstream changes land via merges of upstream *release tags*. |
 | feature branches | One per feature/fix, branched from `efcc` | Open PRs against `efcc`. Rebasing a feature branch is fine as long as nothing else is branched from it. |
 
 **All feature work starts from `efcc`, and all PRs target `efcc`** — not
@@ -27,9 +27,27 @@ and diff our divergence against pristine upstream at any time.
 
 ### Syncing with upstream
 
-Run `scripts/sync-upstream.sh`. It fast-forwards `master` from
-`upstream/master`, then merges `master` into `efcc`, and pushes both. Neither
-branch is ever force-pushed, so open PRs are never disturbed by a sync.
+`efcc` follows upstream **release tags**, not upstream's master tip — and only
+once that release is the version packaged in nixpkgs, because the fork is
+deployed with nixpkgs' pretix package (with `src` overridden to `efcc`).
+Syncing past the packaged version would make `efcc` undeployable until nixpkgs
+catches up.
+
+Before syncing, confirm the target release is in nixpkgs:
+
+```
+nix eval nixpkgs#pretix.version
+```
+
+Then run:
+
+```
+scripts/sync-upstream.sh v2026.7.0
+```
+
+It fast-forwards the `master` mirror from `upstream/master`, then merges the
+given release tag into `efcc`, and pushes both. Neither branch is ever
+force-pushed, so open PRs are never disturbed by a sync.
 
 If the merge into `efcc` conflicts, resolve the conflicts, commit, and push
 `efcc`. Running `git config rerere.enabled true` once is recommended so
