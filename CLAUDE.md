@@ -49,6 +49,12 @@ It fast-forwards the `master` mirror from `upstream/master`, then merges the
 given release tag into `efcc`, and pushes both. Neither branch is ever
 force-pushed, so open PRs are never disturbed by a sync.
 
+> **One-time note:** `efcc` carries a downgrade commit (`a0504e1c5`) that
+> pinned its tree back to v2026.6.0 while its history already contained newer
+> upstream commits. Before merging the next release tag, revert it
+> (`git revert a0504e1c5`) — `sync-upstream.sh` refuses to run until then.
+> Remove this note and the script guard once that's done.
+
 If the merge into `efcc` conflicts, resolve the conflicts, commit, and push
 `efcc`. Running `git config rerere.enabled true` once is recommended so
 recurring conflict resolutions are remembered and replayed automatically.
