@@ -67,6 +67,19 @@ let
         build-system = with self; [ setuptools ];
       };
 
+      # our tree is ahead of nixpkgs' packaged pretix release
+      django-querytagger = self.callPackage ./django-querytagger.nix { };
+      django-redis = super.django-redis.overridePythonAttrs rec {
+        version = "7.0.0";
+        src = fetchPypi {
+          pname = "django_redis";
+          inherit version;
+          hash = "sha256-5ISRyGL0NQsHR86xAWcAaG+5PE9OD7nEkP5sZlj/2TM=";
+        };
+        # the 6.x test setup doesn't carry over cleanly to 7.x
+        doCheck = false;
+      };
+
       pretix = self.toPythonModule pretix;
       pretix-plugin-build = self.callPackage ./plugin-build.nix { };
     };
@@ -148,6 +161,7 @@ pythonPackages.buildPythonApplication (finalAttrs: {
       django-oauth-toolkit
       django-otp
       django-phonenumber-field
+      django-querytagger
       django-redis
       django-scopes
       django-statici18n
