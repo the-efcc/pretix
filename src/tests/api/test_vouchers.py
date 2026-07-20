@@ -964,8 +964,6 @@ def test_redeemed_is_not_writable(token_client, organizer, event, item):
 
 @pytest.mark.django_db
 def test_create_multiple_vouchers(token_client, organizer, event, item):
-    with scopes_disabled():
-        event.quotas.create(name="Q", size=100).items.add(item)
     resp = token_client.post(
         '/api/v1/organizers/{}/events/{}/vouchers/batch_create/'.format(organizer.slug, event.slug),
         data=[
@@ -1014,8 +1012,6 @@ def test_create_multiple_vouchers(token_client, organizer, event, item):
 
 @pytest.mark.django_db
 def test_create_multiple_vouchers_one_invalid(token_client, organizer, event, item):
-    with scopes_disabled():
-        event.quotas.create(name="Q", size=100).items.add(item)
     resp = token_client.post(
         '/api/v1/organizers/{}/events/{}/vouchers/batch_create/'.format(organizer.slug, event.slug),
         data=[
@@ -1059,8 +1055,6 @@ def test_create_multiple_vouchers_one_invalid(token_client, organizer, event, it
 
 @pytest.mark.django_db
 def test_create_multiple_vouchers_duplicate_code(token_client, organizer, event, item):
-    with scopes_disabled():
-        event.quotas.create(name="Q", size=100).items.add(item)
     resp = token_client.post(
         '/api/v1/organizers/{}/events/{}/vouchers/batch_create/'.format(organizer.slug, event.slug),
         data=[
@@ -1104,8 +1098,6 @@ def test_create_multiple_vouchers_duplicate_code(token_client, organizer, event,
 
 @pytest.mark.django_db
 def test_create_multiple_vouchers_autogenerate_codes(token_client, organizer, event, item):
-    with scopes_disabled():
-        event.quotas.create(name="Q", size=100).items.add(item)
     resp = token_client.post(
         '/api/v1/organizers/{}/events/{}/vouchers/batch_create/'.format(organizer.slug, event.slug),
         data=[
@@ -1165,8 +1157,6 @@ def seat1(item, event):
 
 @pytest.mark.django_db
 def test_create_multiple_vouchers_duplicate_seat(token_client, organizer, event, item, seat1, seatingplan):
-    with scopes_disabled():
-        event.quotas.create(name="Q", size=100).items.add(item)
     resp = token_client.post(
         '/api/v1/organizers/{}/events/{}/vouchers/batch_create/'.format(organizer.slug, event.slug),
         data=[

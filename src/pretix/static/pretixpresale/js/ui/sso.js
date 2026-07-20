@@ -39,12 +39,10 @@ $(function () {
             return
         if (event.data && event.data.__process === "customer_sso_popup") {
             if (event.data.status === "ok") {
-                $("#customer_login .alert.alert-danger").addClass("hidden");
                 $("#login_sso_data").val(event.data.value)
                 $("#login_sso_data").closest("form").get(0).submit()
             } else {
-                $("#customer_login .alert.alert-danger").html(event.data.value);
-                $("#customer_login .alert.alert-danger").removeClass("hidden");
+                alert(event.data.value)  // todo
             }
             event.source.postMessage({'__process': 'popup_close'}, "*")
         }

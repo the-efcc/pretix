@@ -27,7 +27,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
 from django.db.models import Q
 from django.utils.crypto import get_random_string
-from django.utils.translation import gettext, gettext_lazy as _
+from django.utils.translation import gettext_lazy as _
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
 
@@ -492,9 +492,7 @@ class TeamInviteSerializer(serializers.ModelSerializer):
     def _send_invite(self, instance):
         mail(
             instance.email,
-            gettext('You\'ve been invited to join %(organizer)s') % {
-                'organizer': self.context['organizer'].name,
-            },
+            _('Account invitation'),
             'pretixcontrol/email/invitation.txt',
             {
                 'instance': settings.PRETIX_INSTANCE_NAME,
@@ -576,7 +574,6 @@ class OrganizerSettingsSerializer(SettingsSerializer):
         'customer_accounts_require_login_for_order_access',
         'invoice_regenerate_allowed',
         'contact_mail',
-        'contact_url',
         'imprint_url',
         'organizer_info_text',
         'event_list_type',

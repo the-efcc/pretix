@@ -1,14 +1,17 @@
-{% load i18n %}{% blocktrans %}Hello,
+{% load i18n %}
+{% load i18n %}{% blocktrans with url=url|safe %}Hello,
 
-The following data shredding job has been completed:
+we hereby confirm that the following data shredding job has been completed:
 
-- Organizer: {{ organizer }}
-- Event: {{ event }}
-- Data selection: {{ shredders }}
-- Start time: {{ start_time }}
+Organizer: {{ organizer }}
 
-Any data added to the event after the start time may not have been deleted.
+Event: {{ event }}
 
-Thanks,  
-The {{ instance }} Team
+Data selection: {{ shredders }}
+
+Start time: {{ start_time }} (new data added after this time might not have been deleted)
+
+Best regards,
+
+Your {{ instance }} team
 {% endblocktrans %}

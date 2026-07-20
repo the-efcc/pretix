@@ -1,13 +1,12 @@
 {% load i18n %}
-{% trans "Your scheduled export failed." %}
+{% trans "Your export failed." %}
 
-- {% trans "Reason" %}: {{ reason }}
+{% trans "Reason:" %} {{ reason }}
 
-{% if not soft %}{% trans "If an export fails five times in a row, we'll stop sending it." %}{% endif %}
+{% if not soft %}
+{% trans "If your export fails five times in a row, it will no longer be sent." %}
+{% endif %}
 
-{% trans "You can adjust or remove this export here:" %}
+{% trans "Configuration link:" %}
 
 {{ configuration_url }}
-
-{% blocktrans with instance=instance %}Thanks,  
-The {{ instance }} Team{% endblocktrans %}

@@ -625,7 +625,6 @@ class EventSettingsForm(EventSettingsValidationMixin, FormPlaceholderMixin, Sett
         'max_items_per_order',
         'reservation_time',
         'contact_mail',
-        'contact_url',
         'show_variations_expanded',
         'hide_sold_out',
         'meta_noindex',
@@ -672,11 +671,6 @@ class EventSettingsForm(EventSettingsValidationMixin, FormPlaceholderMixin, Sett
 
     base_context = {
         'frontpage_text': ['event'],
-        'presale_has_ended_text': ['event'],
-        'voucher_explanation_text': ['event'],
-        'banner_text': ['event'],
-        'banner_text_bottom': ['event'],
-        'event_info_text': ['event'],
     }
 
     def _resolve_virtual_keys_input(self, data, prefix=''):
@@ -1679,7 +1673,7 @@ class CountriesAndEUAndStates(CountriesAndEU):
 
 class TaxRuleLineForm(I18nForm):
     country = LazyTypedChoiceField(
-        choices=lazy(lambda: CountriesAndEUAndStates(), CountriesAndEUAndStates),
+        choices=CountriesAndEUAndStates(),
         required=False
     )
     address_type = forms.ChoiceField(

@@ -747,7 +747,6 @@ class EventSettingsSerializer(SettingsSerializer):
         'max_items_per_order',
         'reservation_time',
         'contact_mail',
-        'contact_url',
         'show_variations_expanded',
         'hide_sold_out',
         'meta_noindex',

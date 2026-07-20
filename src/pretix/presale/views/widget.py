@@ -123,7 +123,7 @@ def widget_css_etag(request, version, **kwargs):
 
 
 def _use_vite(request):
-    if getattr(settings, 'PRETIX_WIDGET_VITE', False) or "beta" in request.GET:
+    if getattr(settings, 'PRETIX_WIDGET_VITE', False):
         return True
     origin = request.META.get('HTTP_ORIGIN', '')
     gs = GlobalSettingsObject()
@@ -834,7 +834,7 @@ class WidgetAPIProductList(EventListMixin, View):
             data['vouchers_exist'] = False
             if ev.presale_has_ended:
                 if request.event.settings.presale_has_ended_text:
-                    data['error'] = templating_context.format(str(request.event.settings.presale_has_ended_text))
+                    data['error'] = str(request.event.settings.presale_has_ended_text)
                 else:
                     data['error'] = gettext('The booking period for this event is over.')
             elif request.event.settings.presale_start_show_date:

@@ -22,7 +22,6 @@
 import logging
 from decimal import Decimal
 
-from django.conf import settings
 from django.db import transaction
 from django.db.models import Count, Exists, IntegerField, OuterRef, Q, Subquery
 from django.utils.crypto import get_random_string
@@ -378,13 +377,12 @@ def cancel_event(self, event: Event, subevent: int, auto_refund: bool,
         confirmation_code = get_random_string(8, allowed_chars="01234567890")
         mail(
             user.email,
-            subject=gettext('Confirm event cancellation and bulk refund'),
+            subject=gettext('Bulk-refund confirmation'),
             template='pretixbase/email/cancel_confirm.txt',
             context={
                 "event": str(event),
                 "amount": money_filter(refund_total, event.currency),
                 "confirmation_code": confirmation_code,
-                "instance": settings.PRETIX_INSTANCE_NAME,
             },
             locale=user.locale,
         )

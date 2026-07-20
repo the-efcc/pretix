@@ -340,13 +340,12 @@ def _run_scheduled_export(schedule, context: Union[Event, Organizer], exporter, 
             if schedule.owner.is_active:
                 mail(
                     email=schedule.owner.email,
-                    subject=gettext('Scheduled export failed'),
+                    subject=gettext('Export failed'),
                     template='pretixbase/email/export_failed.txt',
                     context={
                         'configuration_url': config_url,
                         'reason': msg,
                         'soft': soft,
-                        'instance': settings.PRETIX_INSTANCE_NAME,
                     },
                     event=context if isinstance(context, Event) else None,
                     organizer=context.organizer if isinstance(context, Event) else context,

@@ -77,7 +77,6 @@ from reportlab.platypus import Paragraph
 
 from pretix.base.i18n import language
 from pretix.base.models import Checkin, Event, Order, OrderPosition, Question
-from pretix.base.services.placeholders import PlaceholderContext
 from pretix.base.settings import PERSON_NAME_SCHEMES
 from pretix.base.signals import layout_image_variables, layout_text_variables
 from pretix.base.templatetags.money import money_filter
@@ -402,7 +401,11 @@ DEFAULT_VARIABLES = OrderedDict((
         "editor_sample": _("Event organizer info text"),
         "evaluate": lambda op, order, ev: str(order.event.settings.organizer_info_text)
     }),
-    ("event_info_text", {}),  # Placeholder to "reserve" position, defined later in `get_variables`
+    ("event_info_text", {
+        "label": _("Event info text"),
+        "editor_sample": _("Event info text"),
+        "evaluate": lambda op, order, ev: str(order.event.settings.event_info_text)
+    }),
     ("now_date", {
         "label": _("Printing date"),
         "editor_sample": _("2017-05-31"),
@@ -666,14 +669,6 @@ def get_images(event):
 
 def get_variables(event):
     v = copy.copy(DEFAULT_VARIABLES)
-
-    templating_context = PlaceholderContext(event=event)
-    v['event_info_text'] = {
-        "label": _("Event info text"),
-        "editor_sample": _("Event info text"),
-        "evaluate": lambda op, order, ev:
-            templating_context.format(str(order.event.settings.event_info_text))
-    }
 
     scheme = PERSON_NAME_SCHEMES[event.settings.name_scheme]
 

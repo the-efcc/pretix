@@ -155,8 +155,8 @@ def get_grouped_items(event, *, channel: SalesChannel, subevent=None, voucher=No
         ).filter(
             variation_q,
             Q(all_sales_channels=True) | Q(limit_sales_channels=channel),
-            Exists(Quota.variations.through.objects.filter(quota__subevent_id=subevent, itemvariation_id=OuterRef("pk"))),
             active=True,
+            quotas__isnull=False,
             subevent_disabled=False
         ).prefetch_related(
             *prefetch_membership_types,
@@ -634,10 +634,6 @@ class EventIndex(EventViewMixin, EventListMixin, CartMixin, TemplateView):
         context['has_addon_choices'] = any(cp.has_addon_choices for cp in get_cart(self.request))
 
         templating_context = PlaceholderContext(event_or_subevent=self.subevent or self.request.event, event=self.request.event)
-
-        for field in ('presale_has_ended_text',):
-            context[field] = templating_context.format(str(self.request.event.settings[field]))
-
         if self.subevent:
             context['frontpage_text'] = templating_context.format(str(self.subevent.frontpage_text))
         else:
