@@ -18,7 +18,7 @@ All PRs go to our fork: <https://github.com/the-efcc/pretix>.
 | Branch | Role | Rules |
 | --- | --- | --- |
 | `master` | Pure mirror of `upstream/master` | Fast-forward only. Never commit to it, never force-push it. |
-| `efcc` | The product branch: `master` + all our patches. This is what gets deployed. | Forward-only: never rebase it, never force-push it. Upstream changes land via merges of `master`. |
+| `efcc` | The product branch: `master` + all our patches. This is what gets deployed. | Forward-only: never rebase it, never force-push it. Upstream changes land via merges of upstream *release tags*. |
 | feature branches | One per feature/fix, branched from `efcc` | Open PRs against `efcc`. Rebasing a feature branch is fine as long as nothing else is branched from it. |
 
 **All feature work starts from `efcc`, and all PRs target `efcc`** — not
@@ -27,13 +27,39 @@ and diff our divergence against pristine upstream at any time.
 
 ### Syncing with upstream
 
-Run `scripts/sync-upstream.sh`. It fast-forwards `master` from
-`upstream/master`, then merges `master` into `efcc`, and pushes both. Neither
-branch is ever force-pushed, so open PRs are never disturbed by a sync.
+`efcc` follows upstream **release tags**, not upstream's master tip — released
+versions are upstream's tested cut-points. Run
+
+```
+scripts/sync-upstream.sh v2026.7.0
+```
+
+It fast-forwards the `master` mirror from `upstream/master`, then merges the
+given release tag into `efcc`, and pushes both. Neither branch is ever
+force-pushed, so open PRs are never disturbed by a sync.
 
 If the merge into `efcc` conflicts, resolve the conflicts, commit, and push
 `efcc`. Running `git config rerere.enabled true` once is recommended so
 recurring conflict resolutions are remembered and replayed automatically.
+
+## Nix packaging
+
+The fork ships its own Nix package: `flake.nix` + `nix/package.nix`, adapted
+from nixpkgs' pretix derivation (keep the diff against nixpkgs small).
+Deployment keeps using the `services.pretix` NixOS module from nixpkgs, with
+`services.pretix.package` pointed at this flake's package.
+
+Build it with `nix build .#pretix`. CI builds it for every PR targeting
+`efcc`, so packaging breakage is caught at PR time.
+
+Maintenance rules:
+
+- `package-lock.json` changed (usually after an upstream sync) → update
+  `npmDepsHash` in `nix/package.nix`:
+  `nix run nixpkgs#prefetch-npm-deps -- package-lock.json`
+- Dependencies changed in `pyproject.toml` (e.g. a new feature needs a
+  library) → mirror the change in the `dependencies` list in
+  `nix/package.nix`.
 
 ## Development environment
 

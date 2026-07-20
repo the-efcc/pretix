@@ -1,0 +1,16 @@
+name: Nix package
+
+on:
+  push:
+    branches: [efcc]
+  pull_request:
+    branches: [efcc]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: cachix/install-nix-action@v31
+      - name: Build pretix package
+        run: nix build .#pretix --print-build-logs
