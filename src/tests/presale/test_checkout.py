@@ -3017,6 +3017,41 @@ class CheckoutTestCase(BaseCheckoutTestCase, TimemachineTestMixin, TestCase):
         with scopes_disabled():
             self.assertEqual(OrderPosition.objects.filter(item=self.workshop1).last().price, 0)
 
+    def test_voucher_valid_if_pending(self):
+        with scopes_disabled():
+            v = Voucher.objects.create(item=self.ticket, event=self.event, valid_until=now() + timedelta(days=2),
+                                       valid_if_pending=True)
+            CartPosition.objects.create(
+                event=self.event, cart_id=self.session_key, item=self.ticket,
+                price=23, expires=now() - timedelta(minutes=10), voucher=v
+            )
+        self._set_payment()
+
+        response = self.client.post('/%s/%s/checkout/confirm/' % (self.orga.slug, self.event.slug), follow=True)
+        doc = BeautifulSoup(response.content.decode(), "lxml")
+        self.assertEqual(len(doc.select(".thank-you")), 1)
+        with scopes_disabled():
+            o = Order.objects.last()
+            assert o.status == Order.STATUS_PENDING
+            assert o.valid_if_pending
+
+    def test_voucher_without_valid_if_pending(self):
+        with scopes_disabled():
+            v = Voucher.objects.create(item=self.ticket, event=self.event, valid_until=now() + timedelta(days=2))
+            CartPosition.objects.create(
+                event=self.event, cart_id=self.session_key, item=self.ticket,
+                price=23, expires=now() - timedelta(minutes=10), voucher=v
+            )
+        self._set_payment()
+
+        response = self.client.post('/%s/%s/checkout/confirm/' % (self.orga.slug, self.event.slug), follow=True)
+        doc = BeautifulSoup(response.content.decode(), "lxml")
+        self.assertEqual(len(doc.select(".thank-you")), 1)
+        with scopes_disabled():
+            o = Order.objects.last()
+            assert o.status == Order.STATUS_PENDING
+            assert not o.valid_if_pending
+
     def test_confirm_price_changed_reverse_charge(self):
         self._enable_reverse_charge()
         self.ticket.default_price = 24

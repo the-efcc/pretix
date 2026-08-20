@@ -354,6 +354,14 @@ class AllBundlesIncludedColumn(BooleanColumnMixin, ImportColumn):
         obj.all_bundles_included = value
 
 
+class ValidIfPendingColumn(BooleanColumnMixin, ImportColumn):
+    identifier = 'valid_if_pending'
+    verbose_name = gettext_lazy('Confirm orders regardless of payment')
+
+    def assign(self, value, obj: Voucher, **kwargs):
+        obj.valid_if_pending = value
+
+
 def get_voucher_import_columns(event):
     default = []
     if event.has_subevents:
@@ -377,6 +385,7 @@ def get_voucher_import_columns(event):
         ShowHiddenItemsColumn(event),
         AllAddonsIncludedColumn(event),
         AllBundlesIncludedColumn(event),
+        ValidIfPendingColumn(event),
     ]
 
     for recv, resp in voucher_import_columns.send(sender=event):

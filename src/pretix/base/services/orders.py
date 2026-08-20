@@ -1236,9 +1236,11 @@ def _perform_order(event: Event, payment_requests: List[dict], position_ids: Lis
     err_out = None
     with transaction.atomic(durable=True):
         positions = list(
-            positions.select_related('item', 'variation', 'subevent', 'seat', 'addon_to').prefetch_related('addons')
+            positions.select_related('item', 'variation', 'subevent', 'seat', 'addon_to', 'voucher').prefetch_related('addons')
         )
         positions.sort(key=lambda c: c.sort_key)
+        if any(p.voucher_id and p.voucher.valid_if_pending for p in positions):
+            valid_if_pending = True
         if len(positions) == 0:
             raise OrderError(error_messages['empty'])
         if len(position_ids) != len(positions):

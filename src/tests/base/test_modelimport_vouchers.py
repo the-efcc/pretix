@@ -102,6 +102,7 @@ DEFAULT_SETTINGS = {
     'show_hidden_items': 'static:true',
     'all_addons_included': 'csv:C',
     'all_bundles_included': 'static:false',
+    'valid_if_pending': 'static:false',
 }
 
 

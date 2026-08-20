@@ -106,6 +106,7 @@
                     {% bootstrap_field form.show_hidden_items layout="control" %}
                     {% bootstrap_field form.all_addons_included layout="control" %}
                     {% bootstrap_field form.all_bundles_included layout="control" %}
+                    {% bootstrap_field form.valid_if_pending layout="control" %}
                 </fieldset>
                 {% eventsignal request.event "pretix.control.signals.voucher_form_html" form=form %}
             </div>
