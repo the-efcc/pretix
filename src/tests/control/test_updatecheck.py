@@ -84,6 +84,23 @@ def test_settings(client, user):
 
 
 @pytest.mark.django_db
+def test_disabling_update_check_clears_warning(client, user):
+    user.is_staff = True
+    user.save()
+    client.login(email='dummy@dummy.dummy', password='dummy')
+
+    gs = GlobalSettingsObject()
+    gs.settings.set('update_check_result_warning', True)
+
+    # Disabling the update check must clear the stale "update available" warning so
+    # the notification bell does not stay red forever (#8).
+    client.post('/control/global/update/', {'update_check_email': '', 'update_check_perform': ''})
+    gs.settings.flush()
+    assert not gs.settings.update_check_perform
+    assert not gs.settings.update_check_result_warning
+
+
+@pytest.mark.django_db
 @responses.activate
 def test_trigger(client, user):
     responses.add_callback(
