@@ -133,11 +133,18 @@ class OutgoingMailDetailView(OrganizerDetailViewMixin, OrganizerPermissionRequir
         ctx['sender'] = "{} <{}>".format(from_name, from_email) if from_name else from_email
 
         ctx['can_retry'] = self.object.status in OutgoingMail.STATUS_LIST_RETRYABLE
-        order = self.object.order
-        ctx['order_email_differs'] = bool(
-            order and order.email and order.email not in self.object.to
-        )
+        ctx['order_email_differs'] = self._order_email_differs()
         return ctx
+
+    def _order_email_differs(self):
+        order = self.object.order
+        if not order or not order.email:
+            return False
+        if len(self.object.to) != 1:
+            # With more than one recipient, sending to the order's address would drop the others.
+            return False
+        # OutgoingMail.to is always stored lower-cased, Order.email is not normalized.
+        return order.email.lower() != self.object.to[0].lower()
 
     @transaction.atomic
     def post(self, request, *args, **kwargs):
@@ -152,7 +159,11 @@ class OutgoingMailDetailView(OrganizerDetailViewMixin, OrganizerPermissionRequir
             if not order or not order.email:
                 messages.error(request, _('This email is not linked to an order with a contact address.'))
                 return redirect(self._detail_url())
-            self.object.to = [order.email]
+            if len(self.object.to) != 1:
+                messages.error(request, _('This email has multiple recipients and cannot be redirected to the '
+                                          'order\'s address.'))
+                return redirect(self._detail_url())
+            self.object.to = [order.email.lower()]
 
         self.object.status = OutgoingMail.STATUS_QUEUED
         self.object.sent = None
