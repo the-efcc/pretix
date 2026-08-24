@@ -224,6 +224,15 @@ class ParametrizedOrderNotificationType(NotificationType):
         return n
 
 
+class OrderEmailErrorNotificationType(ParametrizedOrderNotificationType):
+    def build_notification(self, logentry: LogEntry):
+        n = super().build_notification(logentry)
+        data = logentry.parsed_data
+        if data.get('subject'):
+            n.add_attribute(_('Error'), data['subject'])
+        return n
+
+
 @receiver(register_notification_types, dispatch_uid="base_register_default_notification_types")
 def register_default_notification_types(sender, **kwargs):
     return (
@@ -298,5 +307,11 @@ def register_default_notification_types(sender, **kwargs):
             'pretix.event.order.refund.requested',
             _('Refund requested'),
             _('You have been requested to issue a refund for {order.code}.')
+        ),
+        OrderEmailErrorNotificationType(
+            sender,
+            'pretix.event.order.email.error',
+            _('Email delivery failed'),
+            _('An email related to order {order.code} could not be delivered.'),
         ),
     )
