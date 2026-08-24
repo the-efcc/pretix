@@ -163,6 +163,9 @@ class Voucher(LoggedModel):
     :param tag: Use this field to group multiple vouchers together. If you enter the same value for multiple
                 vouchers, you can get statistics on how many of them have been redeemed etc.
     :type tag: str
+    :param valid_if_pending: If set, orders placed with this voucher are treated like paid orders for most
+                             purposes even before they are paid, and are not expired automatically.
+    :type valid_if_pending: bool
 
     Various constraints apply:
 
@@ -308,6 +311,16 @@ class Voucher(LoggedModel):
     )
     all_bundles_included = models.BooleanField(
         verbose_name=_("Include all bundled products without a designated price when redeeming this voucher"),
+        default=False
+    )
+    valid_if_pending = models.BooleanField(
+        verbose_name=_("Confirm order regardless of payment"),
+        help_text=_("If you check this box, orders placed with this voucher will behave like a paid order for most "
+                    "purposes, even though they are not yet paid. This means that the customer can already download "
+                    "and use tickets regardless of your event settings, and the order might be treated as paid by "
+                    "some plugins. Such orders will also not be marked as \"expired\" automatically if the payment "
+                    "deadline arrives, since we expect that you want to collect the amount somehow and not "
+                    "auto-cancel the order."),
         default=False
     )
 

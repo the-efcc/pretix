@@ -79,6 +79,7 @@ TEST_VOUCHER_RES = {
     'show_hidden_items': True,
     'all_addons_included': False,
     'all_bundles_included': False,
+    'valid_if_pending': False,
     'subevent': None,
     'seat': None,
     'budget': None,

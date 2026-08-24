@@ -102,6 +102,7 @@ DEFAULT_SETTINGS = {
     'show_hidden_items': 'static:true',
     'all_addons_included': 'csv:C',
     'all_bundles_included': 'static:false',
+    'valid_if_pending': 'static:false',
 }
 
 
@@ -117,6 +118,7 @@ def test_import_simple(event, item, user):
     assert v.item == item
     assert v.all_addons_included
     assert not v.all_bundles_included
+    assert not v.valid_if_pending
     assert v.valid_until.year == 2021
 
 

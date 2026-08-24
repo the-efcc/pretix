@@ -1158,6 +1158,24 @@ def _order_placed_email_attendee(event: Event, order: Order, position: OrderPosi
     )
 
 
+# The initial value of ``Order.valid_if_pending`` for a new order is decided exclusively by the
+# ``order_valid_if_pending`` signal, whose results are OR'ed together in ``_perform_order()`` below.
+# Anything that should be able to force an order to be valid-while-pending -- core features included --
+# plugs in here instead of writing to the order directly, so there is a single place that decides the
+# initial value.
+
+
+@receiver(order_valid_if_pending, dispatch_uid="pretixbase_order_valid_if_pending_by_voucher")
+def order_valid_if_pending_by_voucher(sender, positions=None, **kwargs):
+    """
+    Mark an order as valid-if-pending if any of its positions is bought with a voucher that has
+    ``Voucher.valid_if_pending`` set.
+    """
+    if positions is None:
+        return False
+    return positions.filter(voucher__valid_if_pending=True).exists()
+
+
 def _perform_order(event: Event, payment_requests: List[dict], position_ids: List[str],
                    email: str, locale: str, address: int, meta_info: dict=None, sales_channel: str='web',
                    shown_total=None, customer=None, api_meta: dict=None, tax_rounding_mode=None):

@@ -707,7 +707,7 @@ class VoucherBulkUpdateView(VoucherQueryMixin, EventPermissionRequiredMixin, For
         fields = (
             'valid_until', 'block_quota', 'allow_ignore_quota', 'value', 'tag', 'comment', 'max_usages',
             'min_usages', 'price_mode', 'subevent', 'show_hidden_items', 'all_addons_included', 'all_bundles_included',
-            'budget',
+            'valid_if_pending', 'budget',
         )
         for f in fields:
             existing_values = list(qs.order_by(f).values(f).annotate(c=Count('*')))
