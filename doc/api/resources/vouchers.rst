@@ -50,6 +50,7 @@ subevent                              integer                    ID of the date 
 show_hidden_items                     boolean                    Only if set to ``true``, this voucher allows to buy products with the property ``hide_without_voucher``. Defaults to ``true``.
 all_addons_included                   boolean                    If set to ``true``, all add-on products for the product purchased with this voucher are included in the base price.
 all_bundles_included                  boolean                    If set to ``true``, all bundled products for the product purchased with this voucher are added without their designated price.
+valid_if_pending                      boolean                    If set to ``true``, orders placed with this voucher are treated like paid orders for most purposes (such as ticket download and check-in) even before they are paid, and are not expired automatically.
 budget                                money (string)             The budget a voucher is allowed to consume before being used up (or ``null``)
 budget_used                           money (string)             The amount of budget the voucher has already used up.
 ===================================== ========================== =======================================================
@@ -108,6 +109,7 @@ Endpoints
             "show_hidden_items": false,
             "all_addons_included": false,
             "all_bundles_included": false,
+            "valid_if_pending": false,
             "budget": None,
             "budget_used": "0.00"
           }
@@ -181,6 +183,7 @@ Endpoints
         "show_hidden_items": false,
         "all_addons_included": false,
         "all_bundles_included": false,
+        "valid_if_pending": false,
         "budget": None,
         "budget_used": "0.00"
       }
@@ -222,7 +225,8 @@ Endpoints
         "subevent": null,
         "show_hidden_items": false,
         "all_addons_included": false,
-        "all_bundles_included": false
+        "all_bundles_included": false,
+        "valid_if_pending": false
       }
 
    **Example response**:
@@ -254,6 +258,7 @@ Endpoints
         "show_hidden_items": false,
         "all_addons_included": false,
         "all_bundles_included": false,
+        "valid_if_pending": false,
         "budget": None,
         "budget_used": "0.00"
       }
@@ -297,7 +302,8 @@ Endpoints
           "subevent": null,
           "show_hidden_items": false,
           "all_addons_included": false,
-          "all_bundles_included": false
+          "all_bundles_included": false,
+          "valid_if_pending": false
         },
         {
           "code": "ASDKLJCYXCASDASD",
@@ -315,7 +321,8 @@ Endpoints
           "subevent": null,
           "show_hidden_items": false,
           "all_addons_included": false,
-          "all_bundles_included": false
+          "all_bundles_included": false,
+          "valid_if_pending": false
         },
 
    **Example response**:
@@ -395,6 +402,7 @@ Endpoints
         "show_hidden_items": false,
         "all_addons_included": false,
         "all_bundles_included": false,
+        "valid_if_pending": false,
         "budget": None,
         "budget_used": "0.00"
       }

@@ -85,7 +85,7 @@ class VoucherForm(I18nModelForm):
         fields = [
             'code', 'valid_until', 'block_quota', 'allow_ignore_quota', 'value', 'tag',
             'comment', 'max_usages', 'min_usages', 'price_mode', 'subevent', 'show_hidden_items', 'all_addons_included',
-            'all_bundles_included', 'budget'
+            'all_bundles_included', 'valid_if_pending', 'budget'
         ]
         field_classes = {
             'valid_until': SplitDateTimeField,
@@ -555,7 +555,7 @@ class VoucherBulkForm(VoucherForm):
         fields = [
             'valid_until', 'block_quota', 'allow_ignore_quota', 'value', 'tag', 'comment',
             'max_usages', 'min_usages', 'price_mode', 'subevent', 'show_hidden_items', 'all_addons_included',
-            'all_bundles_included', 'budget'
+            'all_bundles_included', 'valid_if_pending', 'budget'
         ]
         field_classes = {
             'valid_until': SplitDateTimeField,
