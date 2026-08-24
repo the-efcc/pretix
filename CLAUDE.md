@@ -46,8 +46,10 @@ scripts/sync-upstream.sh v2026.7.0
 ```
 
 It fast-forwards the `master` mirror from `upstream/master`, then merges the
-given release tag into `efcc`, and pushes both. Neither branch is ever
-force-pushed, so open PRs are never disturbed by a sync.
+given release tag into `efcc`, repairs the Django migration graph, and pushes
+both. Neither branch is ever force-pushed, so open PRs are never disturbed by
+a sync. It needs `devenv` on PATH for the migration step, and refuses to push
+`efcc` without it.
 
 > **One-time note:** `efcc` carries a downgrade commit (`a0504e1c5`) that
 > pinned its tree back to v2026.6.0 while its history already contained newer
@@ -55,9 +57,21 @@ force-pushed, so open PRs are never disturbed by a sync.
 > (`git revert a0504e1c5`) — `sync-upstream.sh` refuses to run until then.
 > Remove this note and the script guard once that's done.
 
-If the merge into `efcc` conflicts, resolve the conflicts, commit, and push
-`efcc`. Running `git config rerere.enabled true` once is recommended so
-recurring conflict resolutions are remembered and replayed automatically.
+If the merge into `efcc` conflicts, resolve the conflicts, commit, and re-run
+the script — the merge becomes a no-op and the migration step still runs.
+Don't push `efcc` by hand, or you may publish a tree that cannot migrate.
+Running `git config rerere.enabled true` once is recommended so recurring
+conflict resolutions are remembered and replayed automatically.
+
+### Merge migrations
+
+We carry our own migrations in apps upstream also migrates (`pretixbase`), so
+when a release adds one, theirs and ours hang off the same parent and the app
+is left with two leaf nodes — at which point Django refuses to run *any*
+migration. The sync script resolves this by running `makemigrations --merge`
+and committing the resulting merge migration, which carries no operations and
+only re-joins the branches. Expect one on most syncs; upstream's own history
+has several (`0022_merge`, `0035_merge`, `0174_merge_20201222_1031`).
 
 ## Development environment
 
