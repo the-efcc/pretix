@@ -513,6 +513,18 @@ class BasePaymentProvider:
                              'they have chosen this payment method.'),
                  required=False,
              )),
+            ('_valid_if_pending',
+             forms.BooleanField(
+                 label=_('Confirm order regardless of payment'),
+                 help_text=_('If you check this box, orders using this payment method will behave like a paid order '
+                             'for most purposes, even though they are not yet paid. This means that the customer can '
+                             'already download and use tickets regardless of your event settings, and the order might '
+                             'be treated as paid by some plugins. Such orders will also not be marked as "expired" '
+                             'automatically if the payment deadline arrives, since we expect that you want to collect '
+                             'the amount somehow and not auto-cancel the order. This is useful e.g. for on-site cash '
+                             'payments, where the order should stay valid until the event.'),
+                 required=False,
+             )),
         ])
         d['_restricted_countries']._as_type = list
         d['_restrict_to_sales_channels']._as_type = list
