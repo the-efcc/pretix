@@ -2,6 +2,7 @@
 {% load i18n %}
 {% load icon %}
 {% load eventurl %}
+{% load calendar_links %}
 {% if ev.location and show_location %}
     <div class="info-row">
         <div class="info-row-icon" role="img" aria-label="{% trans "Where does the event happen?" %}">
@@ -63,6 +64,13 @@
             {% endif %}
             {% trans "Add to Calendar" %}
             </a>
+            {% google_calendar_url ev as gcal_url %}
+            {% if gcal_url %}
+                &middot;
+                <a href="{{ gcal_url }}" target="_blank" rel="noopener">
+                    {% trans "Add to Google Calendar" %}
+                </a>
+            {% endif %}
         </p>
     </div>
 {% endif %}

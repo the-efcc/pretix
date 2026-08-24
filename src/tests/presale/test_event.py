@@ -148,6 +148,29 @@ class EventMiddlewareTest(EventTestMixin, SoupTest):
         self.assertEqual(resp.status_code, 200)
 
 
+class GoogleCalendarLinkTest(EventTestMixin, SoupTest):
+    def test_link_on_event_page(self):
+        html = self.client.get('/%s/%s/' % (self.orga.slug, self.event.slug)).rendered_content
+        assert 'calendar.google.com/calendar/render' in html
+
+    @scopes_disabled()
+    def test_url_contents(self):
+        from pretix.presale.ical import get_google_calendar_url
+        url = get_google_calendar_url(self.event)
+        assert 'action=TEMPLATE' in url
+        # date_from is 14:00 UTC with no end date => a default one-hour duration
+        assert 'T140000Z' in url
+        assert 'T150000Z' in url
+
+    @scopes_disabled()
+    def test_url_all_day(self):
+        from pretix.presale.ical import get_google_calendar_url
+        self.event.settings.show_times = False
+        url = get_google_calendar_url(self.event)
+        assert 'T140000Z' not in url
+        assert 'dates={0}1226%2F{0}1227'.format(now().year + 1) in url
+
+
 class ItemDisplayTest(EventTestMixin, SoupTest):
     def test_link_rewrite(self):
         with scopes_disabled():

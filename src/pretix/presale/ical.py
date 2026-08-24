@@ -21,7 +21,7 @@
 #
 import datetime
 from collections import namedtuple
-from urllib.parse import urlparse
+from urllib.parse import urlencode, urlparse
 
 import vobject
 from django.conf import settings
@@ -96,6 +96,47 @@ def get_public_ical(events):
 
         vevent.add('description').value = '\n'.join(descr)
     return cal
+
+
+def get_google_calendar_url(ev):
+    """
+    Build a Google Calendar "add event" URL for an event or subevent. Like get_public_ical, this only
+    includes public information. Returns ``None`` if the event has no start date.
+    """
+    event = ev if isinstance(ev, Event) else ev.event
+    if not ev.date_from:
+        return None
+    tz = event.timezone
+
+    if isinstance(ev, Event):
+        url = build_absolute_uri(event, 'presale:event.index')
+    else:
+        url = build_absolute_uri(event, 'presale:event.index', {'subevent': ev.pk})
+
+    use_date_to = event.settings.show_date_to and ev.date_to
+    if event.settings.show_times:
+        dtstart = ev.date_from.astimezone(datetime.timezone.utc)
+        dtend = (ev.date_to if use_date_to else ev.date_from).astimezone(datetime.timezone.utc)
+        if not use_date_to:
+            # date_from used as end-date => add 1h as a default duration
+            dtend = dtend + datetime.timedelta(hours=1)
+        dates = '{}/{}'.format(dtstart.strftime('%Y%m%dT%H%M%SZ'), dtend.strftime('%Y%m%dT%H%M%SZ'))
+    else:
+        dstart = ev.date_from.astimezone(tz).date()
+        # with full-day events date_to in pretix is included (e.g. last day) whereas Google Calendar's end
+        # date is non-inclusive => add one day
+        dend = (ev.date_to if use_date_to else ev.date_from).astimezone(tz).date() + datetime.timedelta(days=1)
+        dates = '{}/{}'.format(dstart.strftime('%Y%m%d'), dend.strftime('%Y%m%d'))
+
+    params = {
+        'action': 'TEMPLATE',
+        'text': str(ev.name),
+        'dates': dates,
+        'details': _('Tickets: {url}').format(url=url),
+    }
+    if ev.location:
+        params['location'] = ", ".join(l.strip() for l in str(ev.location).splitlines() if l.strip())
+    return 'https://calendar.google.com/calendar/render?' + urlencode(params)
 
 
 def get_private_icals(event, positions):
