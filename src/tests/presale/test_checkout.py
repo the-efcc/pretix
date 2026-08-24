@@ -188,6 +188,42 @@ class CheckoutTestCase(BaseCheckoutTestCase, TimemachineTestMixin, TestCase):
         self.assertRedirects(response, '/%s/%s/?require_cookie=true' % (self.orga.slug, self.event.slug),
                              target_status_code=200)
 
+    def _checkout_paid_instantly(self):
+        with scopes_disabled():
+            CartPosition.objects.create(
+                event=self.event, cart_id=self.session_key, item=self.ticket,
+                price=23, expires=now() + timedelta(minutes=10)
+            )
+        self.client.post('/%s/%s/checkout/questions/' % (self.orga.slug, self.event.slug), {
+            'email': 'admin@localhost',
+            'transmission_type': 'email',
+        }, follow=True)
+        self.client.post('/%s/%s/checkout/payment/' % (self.orga.slug, self.event.slug), {
+            'payment': 'testdummy_instant',
+        }, follow=True)
+        self.client.post('/%s/%s/checkout/confirm/' % (self.orga.slug, self.event.slug), follow=True)
+
+    def test_merge_order_placed_paid_disabled(self):
+        self.event.settings.set('payment_testdummy_instant__enabled', True)
+        djmail.outbox = []
+        self._checkout_paid_instantly()
+        with scopes_disabled():
+            assert Order.objects.last().status == Order.STATUS_PAID
+        subjects = [m.subject for m in djmail.outbox]
+        assert any('Your order:' in s for s in subjects)
+        assert any('Payment received' in s for s in subjects)
+
+    def test_merge_order_placed_paid_enabled(self):
+        self.event.settings.set('payment_testdummy_instant__enabled', True)
+        self.event.settings.set('mail_order_placed_paid_merge', True)
+        djmail.outbox = []
+        self._checkout_paid_instantly()
+        with scopes_disabled():
+            assert Order.objects.last().status == Order.STATUS_PAID
+        subjects = [m.subject for m in djmail.outbox]
+        assert not any('Your order:' in s for s in subjects)
+        assert any('Payment received' in s for s in subjects)
+
     def test_reverse_charge(self):
         self.tr19.eu_reverse_charge = True
         self.tr19.home_country = Country('DE')

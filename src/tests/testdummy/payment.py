@@ -41,6 +41,22 @@ class DummyPaymentProvider(BasePaymentProvider):
         pass
 
 
+class DummyInstantPaymentProvider(BasePaymentProvider):
+    identifier = 'testdummy_instant'
+    verbose_name = 'Test dummy (instant)'
+    abort_pending_allowed = False
+    execute_payment_needs_user = False
+
+    def payment_is_valid_session(self, request: HttpRequest) -> bool:
+        return True
+
+    def checkout_confirm_render(self, request) -> str:
+        pass
+
+    def execute_payment(self, request, payment: OrderPayment):
+        payment.confirm(lock=False)
+
+
 class DummyFullRefundablePaymentProvider(BasePaymentProvider):
     identifier = 'testdummy_fullrefund'
     verbose_name = 'Test dummy'

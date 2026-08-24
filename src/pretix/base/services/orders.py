@@ -1393,7 +1393,15 @@ def _perform_order(event: Event, payment_requests: List[dict], position_ids: Lis
             email_attendees_template = event.settings.mail_text_order_placed_attendee
             subject_attendees_template = event.settings.mail_subject_order_placed_attendee
 
-        if sales_channel.identifier in event.settings.mail_sales_channel_placed_paid:
+        # When merging is enabled and the order might be paid instantly below, defer the order
+        # confirmation email until after the payment attempt, so we can skip it if the order ends
+        # up paid (the customer then only receives the payment received email, see #6).
+        defer_placed_email = (
+            event.settings.get('mail_order_placed_paid_merge', as_type=bool) and
+            not order.require_approval and not free_order_flow
+        )
+
+        if not defer_placed_email and sales_channel.identifier in event.settings.mail_sales_channel_placed_paid:
             _order_placed_email(
                 event,
                 order,
@@ -1409,6 +1417,8 @@ def _perform_order(event: Event, payment_requests: List[dict], position_ids: Lis
                     if p.addon_to_id is None and p.attendee_email and p.attendee_email != order.email:
                         _order_placed_email_attendee(event, order, p, email_attendees_template, subject_attendees_template, log_entry,
                                                      is_free=free_order_flow)
+    else:
+        defer_placed_email = False
 
     if not any_payment_failed:
         for p in payment_objs:
@@ -1424,6 +1434,33 @@ def _perform_order(event: Event, payment_requests: List[dict], position_ids: Lis
                     any_payment_failed = True
                 except Exception:
                     logger.exception('Error during payment attempt')
+
+    if defer_placed_email:
+        # The order confirmation email was deferred (see above): only send it if the order was not
+        # paid instantly. If it was paid, the payment received email already went out and merging
+        # means we skip the confirmation email entirely.
+        order.refresh_from_db()
+        if order.status != Order.STATUS_PAID and order.email and \
+                sales_channel.identifier in event.settings.mail_sales_channel_placed_paid:
+            _order_placed_email(
+                event, order,
+                event.settings.mail_text_order_placed,
+                event.settings.mail_subject_order_placed,
+                'pretix.event.order.email.order_placed',
+                invoice if transmit_invoice_mail else None,
+                payment_objs,
+                is_free=False,
+            )
+            if event.settings.mail_send_order_placed_attendee:
+                for p in order.positions.all():
+                    if p.addon_to_id is None and p.attendee_email and p.attendee_email != order.email:
+                        _order_placed_email_attendee(
+                            event, order, p,
+                            event.settings.mail_text_order_placed_attendee,
+                            event.settings.mail_subject_order_placed_attendee,
+                            'pretix.event.order.email.order_placed',
+                            is_free=False,
+                        )
 
     if any_payment_failed:
         # Cancel all other payments because their amount might be wrong now.

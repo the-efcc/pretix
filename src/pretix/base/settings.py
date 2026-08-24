@@ -2460,6 +2460,18 @@ DEFAULTS = {
         'default': ['web'],
         'type': list,
     },
+    'mail_order_placed_paid_merge': {
+        'default': 'False',
+        'type': bool,
+        'serializer_class': serializers.BooleanField,
+        'form_class': forms.BooleanField,
+        'form_kwargs': dict(
+            label=_('Merge order confirmation and payment received emails'),
+            help_text=_('If an order is paid immediately (e.g. with an instant payment method), do not send a '
+                        'separate order confirmation email. The customer will only receive the payment received '
+                        'email. Orders that are not paid right away still receive the order confirmation email.'),
+        ),
+    },
     'mail_sales_channel_download_reminder': {
         'default': ['web'],
         'type': list,
