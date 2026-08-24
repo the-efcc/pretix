@@ -3075,6 +3075,39 @@ class CheckoutTestCase(BaseCheckoutTestCase, TimemachineTestMixin, TestCase):
             assert o.status == Order.STATUS_PENDING
             assert not o.valid_if_pending
 
+    def test_payment_provider_valid_if_pending(self):
+        self.event.settings.set('payment_banktransfer__valid_if_pending', True)
+        with scopes_disabled():
+            CartPosition.objects.create(
+                event=self.event, cart_id=self.session_key, item=self.ticket,
+                price=23, expires=now() - timedelta(minutes=10)
+            )
+        self._set_payment()
+
+        response = self.client.post('/%s/%s/checkout/confirm/' % (self.orga.slug, self.event.slug), follow=True)
+        doc = BeautifulSoup(response.content.decode(), "lxml")
+        self.assertEqual(len(doc.select(".thank-you")), 1)
+        with scopes_disabled():
+            o = Order.objects.last()
+            assert o.status == Order.STATUS_PENDING
+            assert o.valid_if_pending
+
+    def test_payment_provider_without_valid_if_pending(self):
+        with scopes_disabled():
+            CartPosition.objects.create(
+                event=self.event, cart_id=self.session_key, item=self.ticket,
+                price=23, expires=now() - timedelta(minutes=10)
+            )
+        self._set_payment()
+
+        response = self.client.post('/%s/%s/checkout/confirm/' % (self.orga.slug, self.event.slug), follow=True)
+        doc = BeautifulSoup(response.content.decode(), "lxml")
+        self.assertEqual(len(doc.select(".thank-you")), 1)
+        with scopes_disabled():
+            o = Order.objects.last()
+            assert o.status == Order.STATUS_PENDING
+            assert not o.valid_if_pending
+
     def test_confirm_price_changed_reverse_charge(self):
         self._enable_reverse_charge()
         self.ticket.default_price = 24
