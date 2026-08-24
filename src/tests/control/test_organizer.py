@@ -620,6 +620,63 @@ class OrganizerTest(SoupTest):
         assert m.to == ['fixed@example.com']
         assert m.status in (OutgoingMail.STATUS_SENT, OutgoingMail.STATUS_QUEUED)
 
+    def _order_with_failed_mail(self, order_email, to):
+        from decimal import Decimal
+
+        from pretix.base.models import Order
+
+        with scopes_disabled():
+            order = Order.objects.create(
+                code='BAR', event=self.event1, email=order_email,
+                status=Order.STATUS_PENDING, locale='en',
+                datetime=datetime.datetime(2013, 12, 26, tzinfo=datetime.timezone.utc),
+                expires=datetime.datetime(2013, 12, 27, tzinfo=datetime.timezone.utc),
+                sales_channel=self.orga1.sales_channels.get(identifier='web'),
+                total=Decimal('0.00'),
+            )
+            order.create_transactions()
+            m = OutgoingMail.objects.create(
+                organizer=self.orga1, event=self.event1, order=order,
+                status=OutgoingMail.STATUS_FAILED, to=to,
+                subject='Test', body_plain='Test', sender='sender@example.com', headers={},
+            )
+        return order, m
+
+    def test_outgoing_mails_retry_order_email_case_insensitive(self):
+        # Order.email is not normalized, OutgoingMail.to is always stored lower-cased.
+        # The same address in different case must not count as a different address.
+        order, m = self._order_with_failed_mail('Fixed@Example.COM', ['fixed@example.com'])
+        resp = self.client.get('/control/organizer/%s/outgoingmail/%d/' % (self.orga1.slug, m.pk))
+        assert b'retry_order_email' not in resp.content
+
+    def test_outgoing_mails_retry_order_email_is_lowercased(self):
+        order, m = self._order_with_failed_mail('Fixed@Example.COM', ['typo@example.com'])
+        resp = self.client.get('/control/organizer/%s/outgoingmail/%d/' % (self.orga1.slug, m.pk))
+        assert b'retry_order_email' in resp.content
+        resp = self.client.post(
+            '/control/organizer/%s/outgoingmail/%d/' % (self.orga1.slug, m.pk),
+            data={"action": "retry_order_email"},
+        )
+        assert resp.status_code == 302
+        m.refresh_from_db()
+        assert m.to == ['fixed@example.com']
+
+    def test_outgoing_mails_retry_order_email_multiple_recipients(self):
+        # Redirecting to the order address would silently drop the other recipients.
+        order, m = self._order_with_failed_mail(
+            'fixed@example.com', ['typo@example.com', 'someone-else@example.com']
+        )
+        resp = self.client.get('/control/organizer/%s/outgoingmail/%d/' % (self.orga1.slug, m.pk))
+        assert b'retry_order_email' not in resp.content
+        resp = self.client.post(
+            '/control/organizer/%s/outgoingmail/%d/' % (self.orga1.slug, m.pk),
+            data={"action": "retry_order_email"},
+        )
+        assert resp.status_code == 302
+        m.refresh_from_db()
+        assert m.to == ['typo@example.com', 'someone-else@example.com']
+        assert m.status == OutgoingMail.STATUS_FAILED
+
     def test_outgoing_mails_abort(self):
         m1 = OutgoingMail.objects.create(
             organizer=self.orga1,
