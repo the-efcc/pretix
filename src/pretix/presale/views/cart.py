@@ -64,6 +64,7 @@ from pretix.base.services.cart import (
     CartError, add_items_to_cart, apply_voucher, clear_cart, error_messages,
     extend_cart_reservation, remove_cart_position,
 )
+from pretix.base.services.placeholders import PlaceholderContext
 from pretix.base.timemachine import time_machine_now
 from pretix.base.views.tasks import AsyncAction
 from pretix.helpers.http import redirect_to_url
@@ -669,7 +670,6 @@ class RedeemView(NoSearchIndexViewMixin, EventViewMixin, CartMixin, TemplateView
         context['max_times'] = self.voucher.max_usages - self.voucher.redeemed
 
         if self.request.event.settings.voucher_show_frontpage_text:
-            from pretix.base.services.placeholders import PlaceholderContext
             templating_context = PlaceholderContext(
                 event_or_subevent=self.subevent or self.request.event, event=self.request.event
             )
