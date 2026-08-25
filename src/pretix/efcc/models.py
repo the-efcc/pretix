@@ -360,5 +360,10 @@ class ScheduledInstallment(models.Model):
     def is_overdue(self) -> bool:
         return self.state == self.STATE_PENDING and self.due_date <= now()
 
+    @property
+    def installments_after(self) -> int:
+        """How many installments still follow this one."""
+        return max(0, self.plan.total_installments - self.installment_number)
+
     def __str__(self):
         return f"Installment {self.installment_number} for {self.plan.order.code}"

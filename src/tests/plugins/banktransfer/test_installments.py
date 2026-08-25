@@ -33,10 +33,10 @@ from pretix.base.models import (
     Quota, Team, User,
 )
 from pretix.base.services.installments import (
-    create_installment_plan, installments_available_for_event,
-    process_due_push_installments, process_expired_plans,
-    request_push_installment, send_grace_period_warnings,
-    send_installment_reminders,
+    create_installment_plan, get_or_create_push_payment,
+    installments_available_for_event, process_due_push_installments,
+    process_expired_plans, request_push_installment,
+    send_grace_period_warnings, send_installment_reminders,
 )
 from pretix.base.services.orders import perform_order
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
@@ -528,3 +528,92 @@ def test_management_command_drives_the_push_flow(event, order, plan, job):
     second.refresh_from_db()
     assert second.overdue_notice_sent is True
     assert len(djmail.outbox) == 1
+
+
+@pytest.mark.django_db
+class TestCustomerIsToldTheyTransferThemselves:
+
+    def test_confirm_page_does_not_promise_automatic_charges(self, event, client):
+        quota = Quota.objects.create(name="Confirm", size=10, event=event)
+        item = Item.objects.create(event=event, name="Confirm ticket", default_price=Decimal('300.00'))
+        quota.items.add(item)
+
+        cs = client.session
+        client.get('/dummy/dummy/')
+        r = client.post('/dummy/dummy/cart/add', {'item_%d' % item.pk: '1'}, follow=True)
+        assert r.status_code == 200
+
+        r = client.post('/dummy/dummy/checkout/questions/', {'email': 'buyer@example.com'}, follow=True)
+        r = client.post('/dummy/dummy/checkout/payment/', {
+            'payment': 'banktransfer',
+            'pay_in_installments': 'on',
+            'installments_count': '3',
+        }, follow=True)
+        content = r.content.decode()
+
+        assert 'You have selected to pay in installments' in content
+        assert 'You send each of these payments yourself' in content
+        assert 'automatically charged monthly' not in content
+        assert cs is not None
+
+    def test_order_page_says_the_customer_sends_the_money(self, event, order, plan, client):
+        r = client.get('/dummy/dummy/order/%s/%s/' % (order.code, order.secret), follow=True)
+        content = r.content.decode()
+        assert 'which you send us yourself' in content
+
+    def test_pending_page_announces_the_remaining_installments(self, event, order, plan, client):
+        r = client.get('/dummy/dummy/order/%s/%s/' % (order.code, order.secret), follow=True)
+        content = r.content.decode()
+        assert 'Please transfer installment 1 of 3' in content
+        assert '2 more installments remain, which you also transfer yourself' in content
+
+    def test_order_placed_mail_says_more_installments_follow(self, event, order, plan):
+        provider = event.get_payment_providers()['banktransfer']
+        with scopes_disabled():
+            payment = plan.installments.get(installment_number=1).payment
+
+        body = provider.order_pending_mail_render(order, payment)
+
+        assert 'Please transfer installment 1 of 3' in body
+        assert '2 more installments follow this one' in body
+        assert 'You transfer them yourself as well' in body
+
+    def test_last_installment_does_not_announce_more(self, event, order, plan):
+        provider = event.get_payment_providers()['banktransfer']
+        with scopes_disabled():
+            third = plan.installments.get(installment_number=3)
+        third.due_date = now() - timedelta(days=1)
+        third.save(update_fields=['due_date'])
+        with scope(organizer=event.organizer):
+            payment = get_or_create_push_payment(third)
+
+        body = provider.order_pending_mail_render(order, payment)
+
+        assert 'installment 3 of 3' in body
+        assert 'follow this one' not in body
+
+    def test_mail_does_not_end_in_a_stray_none(self, event, order, plan):
+        """The optional free-text bank details used to render as a literal "None"."""
+        provider = event.get_payment_providers()['banktransfer']
+        with scopes_disabled():
+            payment = plan.installments.get(installment_number=1).payment
+
+        body = provider.order_pending_mail_render(order, payment)
+
+        assert 'None' not in body
+
+    def test_due_mail_formats_the_deadline_readably(self, event, order, plan, job):
+        _transfer(job, '100.00')
+        with scopes_disabled():
+            second = plan.installments.get(installment_number=2)
+        second.due_date = now() - timedelta(days=1)
+        second.save(update_fields=['due_date'])
+        djmail.outbox = []
+
+        with scope(organizer=event.organizer):
+            process_due_push_installments()
+
+        body = djmail.outbox[0].body
+        # A raw datetime would leak microseconds and a UTC offset into the email.
+        assert '+00:00' not in body
+        assert '.' not in body.split('otherwise your order')[0].split('reaches us by')[1]

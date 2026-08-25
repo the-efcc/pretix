@@ -33,7 +33,7 @@ from django.utils.timezone import now
 from django_scopes import scopes_disabled
 
 from pretix.base.email import get_email_context
-from pretix.base.i18n import language
+from pretix.base.i18n import LazyExpiresDate, language
 from pretix.base.models import Order, OrderFee, OrderPayment
 from pretix.base.signals import order_canceled, periodic_task
 from pretix.base.templatetags.money import money_filter
@@ -331,7 +331,7 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
                     context = get_email_context(event=event, order=order)
                     context.update({
                         'failure_reason': installment.failure_reason or '',
-                        'expire_date': plan.grace_period_end,
+                        'expire_date': LazyExpiresDate(plan.grace_period_end.astimezone(event.timezone)),
                         'url': eventreverse_absolute(
                             event, 'presale:event.order.installment.recovery',
                             kwargs={'order': order.code, 'secret': order.secret}
@@ -400,6 +400,10 @@ def get_or_create_push_payment(installment: ScheduledInstallment) -> OrderPaymen
         provider=plan.payment_provider,
         amount=installment.amount,
         state__in=(OrderPayment.PAYMENT_STATE_CREATED, OrderPayment.PAYMENT_STATE_PENDING),
+    ).exclude(
+        # Never adopt a payment another installment is already waiting for: two installments
+        # pointing at one payment would make it ambiguous which one it settles.
+        installment__isnull=False
     ).last()
     if payment is None:
         payment = order.payments.create(
@@ -484,7 +488,7 @@ def request_push_installment(installment: ScheduledInstallment, send_mail: bool 
                     'amount': money_filter(installment.amount, event.currency),
                     'installment_number': installment.installment_number,
                     'total_installments': plan.total_installments,
-                    'expire_date': plan.grace_period_end,
+                    'expire_date': LazyExpiresDate(plan.grace_period_end.astimezone(event.timezone)),
                     'payment_info': provider.order_pending_mail_render(order, payment),
                 })
                 try:
@@ -606,7 +610,7 @@ def send_installment_reminders():
                     context = get_email_context(event=event, order=order)
                     context.update({
                         'amount': money_filter(installment.amount, event.currency),
-                        'date': installment.due_date,
+                        'date': LazyExpiresDate(installment.due_date.astimezone(event.timezone)),
                         'installment_number': installment.installment_number,
                         'payment_info': '',
                     })
@@ -658,7 +662,7 @@ def send_grace_period_warnings():
 
             context = get_email_context(event=event, order=order)
             context.update({
-                'expire_date': plan.grace_period_end,
+                'expire_date': LazyExpiresDate(plan.grace_period_end.astimezone(event.timezone)),
             })
 
             try:

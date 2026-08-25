@@ -40,7 +40,7 @@ from django import forms
 from django.core.exceptions import ValidationError
 from django.http import HttpRequest
 from django.template.loader import get_template
-from django.utils.translation import gettext, gettext_lazy as _
+from django.utils.translation import gettext, gettext_lazy as _, ngettext
 from i18nfield.fields import I18nFormField, I18nTextarea
 from i18nfield.forms import I18nTextInput
 from i18nfield.strings import LazyI18nString
@@ -328,8 +328,19 @@ class BankTransfer(BasePaymentProvider):
             )
         t += md_nl2br.join([f"**{k}:** {v}" for k, v in bankdetails])
         if self.settings.get('bank_details', as_type=LazyI18nString):
+            # efcc: only append when there is something to append. An unset setting used to
+            # render as a literal "None" at the end of the email.
             t += md_nl2br
-        t += str(self.settings.get('bank_details', as_type=LazyI18nString))
+            t += str(self.settings.get('bank_details', as_type=LazyI18nString))
+        if installment is not None and installment.installments_after:
+            t += "\n\n"
+            t += ngettext(
+                "One more installment follows this one. You transfer it yourself as well, and we will email "
+                "you the details before it is due.",
+                "{count} more installments follow this one. You transfer them yourself as well, and we will "
+                "email you the details before each one is due.",
+                installment.installments_after,
+            ).format(count=installment.installments_after)
         return t
 
     def payment_pending_render(self, request: HttpRequest, payment: OrderPayment):

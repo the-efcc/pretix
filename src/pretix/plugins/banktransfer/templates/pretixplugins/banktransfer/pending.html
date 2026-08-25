@@ -39,6 +39,15 @@
         <p class="text-muted">
             {% trans "There is no further action required on this website." %}
             {% trans "We will send you an email as soon as we received your payment." %}
+            {% if installment.installments_after %}
+                {% blocktrans trimmed count remaining=installment.installments_after %}
+                    Afterwards, one more installment remains, which you also transfer yourself. We will email you the
+                    details before it is due.
+                {% plural %}
+                    Afterwards, {{ remaining }} more installments remain, which you also transfer yourself. We will
+                    email you the details before each of them is due.
+                {% endblocktrans %}
+            {% endif %}
         </p>
     </div>
     {% if payment_qr_codes %}

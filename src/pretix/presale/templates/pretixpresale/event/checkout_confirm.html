@@ -85,9 +85,15 @@
                         <dt>{% trans "Total installments" %}</dt>
                         <dd>{{ cart.installments.count }}</dd>
                     </dl>
-                    <p class="text-muted">
-                        {% trans "The remaining payments will be automatically charged monthly to your payment method. You may receive email reminders before upcoming payments." %}
-                    </p>
+                    {% if cart.installments.mode == "push" %}
+                        <p class="text-muted">
+                            {% trans "You send each of these payments yourself, one per month. We will give you the payment details for the first one right after you order, and send you a reminder with the details before each of the following ones is due. If a payment does not reach us in time, your order will be canceled." %}
+                        </p>
+                    {% else %}
+                        <p class="text-muted">
+                            {% trans "The remaining payments will be automatically charged monthly to your payment method. You may receive email reminders before upcoming payments." %}
+                        </p>
+                    {% endif %}
                 </div>
             </div>
         {% endif %}

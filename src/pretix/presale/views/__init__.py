@@ -55,7 +55,9 @@ from pretix.base.models import (
     QuestionAnswer, QuestionOption, TaxRule,
 )
 from pretix.base.services.cart import get_fees
-from pretix.base.services.installments import calculate_installment_amounts
+from pretix.base.services.installments import (
+    calculate_installment_amounts, installment_mode_for_provider,
+)
 from pretix.base.services.pricing import apply_rounding
 from pretix.base.templatetags.money import money_filter
 from pretix.helpers.cookies import set_cookie_without_samesite
@@ -278,6 +280,11 @@ class CartMixin:
                 installments = {
                     'count': count,
                     'first_payment': amounts[0] + payment_fees,  # First payment includes fees
+                    # Whether the customer sends each installment themselves or we charge them
+                    # decides what we can promise them on the confirmation page.
+                    'mode': installment_mode_for_provider(
+                        self.request.event.get_payment_providers().get(p['provider'])
+                    ),
                 }
                 break
 
