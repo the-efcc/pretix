@@ -28,3 +28,5 @@ node_modules/
 .vite/
 
 
+.devenv*
+devenv.local.nix
