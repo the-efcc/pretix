@@ -23,20 +23,6 @@ tag="${1:?usage: $0 <release-tag>   e.g.: $0 v2026.7.0}"
 git fetch upstream master "refs/tags/$tag:refs/tags/$tag"
 git fetch origin master efcc
 
-# One-time guard: efcc carries a downgrade commit that pinned its tree back
-# to v2026.6.0 while its history already contained newer upstream commits.
-# It MUST be reverted before the next release merge, or the merge will
-# silently strip the v2026.6.0..master upstream changes from the result.
-# Remove this guard once the revert has landed.
-DOWNGRADE_COMMIT=a0504e1c5928c9e681414234ddebcfcfab845c00
-if git merge-base --is-ancestor "$DOWNGRADE_COMMIT" origin/efcc &&
-   ! git log origin/efcc --grep="reverts commit $DOWNGRADE_COMMIT" --oneline | grep -q .; then
-  echo "ERROR: revert the v2026.6.0 downgrade before syncing:" >&2
-  echo "  git checkout efcc && git revert $DOWNGRADE_COMMIT && git push origin efcc" >&2
-  echo "then re-run this script (and remove this guard)." >&2
-  exit 1
-fi
-
 # 1. Fast-forward the mirror; fails loudly if master ever diverges (it never
 #    should — nobody commits to master). The mirror tracks upstream's
 #    development tip; only efcc is pinned to release tags.
