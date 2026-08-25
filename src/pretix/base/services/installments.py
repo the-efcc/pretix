@@ -39,7 +39,7 @@ from pretix.base.models import (
 )
 from pretix.base.signals import order_canceled, periodic_task
 from pretix.helpers.periodic import minimum_interval
-from pretix.multidomain.urlreverse import build_absolute_uri
+from pretix.multidomain.urlreverse import eventreverse_absolute
 
 logger = logging.getLogger(__name__)
 
@@ -304,7 +304,7 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
                     context.update({
                         'failure_reason': installment.failure_reason or '',
                         'expire_date': plan.grace_period_end,
-                        'url': build_absolute_uri(
+                        'url': eventreverse_absolute(
                             event, 'presale:event.order.installment.recovery',
                             kwargs={'order': order.code, 'secret': order.secret}
                         ),
