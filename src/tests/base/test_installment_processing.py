@@ -32,12 +32,12 @@ from django_scopes import scope
 from pretix.base.models import (
     Event, Item, Order, OrderPayment, OrderPosition, Organizer,
 )
-from pretix.base.models.orders import InstallmentPlan, ScheduledInstallment
 from pretix.base.services.installments import (
     process_due_installments, process_expired_plans,
     send_grace_period_warnings, send_installment_reminders,
 )
 from pretix.base.services.orders import cancel_order
+from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
 
 @pytest.fixture

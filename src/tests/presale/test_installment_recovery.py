@@ -28,10 +28,9 @@ from django.utils.timezone import now
 from django_scopes import scopes_disabled
 
 from pretix.base.models import Event, Order, Organizer
-from pretix.base.models.orders import (
-    InstallmentPlan, OrderPayment, ScheduledInstallment,
-)
+from pretix.base.models.orders import OrderPayment
 from pretix.base.payment import PaymentException
+from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
 
 class TestInstallmentRecovery(TestCase):
@@ -160,7 +159,7 @@ class TestInstallmentRecovery(TestCase):
         payment = OrderPayment.objects.get(order=self.order)
         assert payment.provider == 'dummy'
         assert payment.amount == Decimal('100.00')
-        assert payment.installment_plan == self.plan
+        assert payment.installment.get().plan == self.plan
         assert payment.state == OrderPayment.PAYMENT_STATE_CONFIRMED
 
         self.installment.refresh_from_db()

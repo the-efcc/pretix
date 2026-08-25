@@ -47,6 +47,9 @@ INSTALLED_APPS = [
     'pretix.multidomain',
     'pretix.api',
     'pretix.helpers',
+    # efcc: fork-local models live in their own app so our migrations never
+    # share a migration graph with upstream's `pretixbase`.
+    'pretix.efcc',
     'rest_framework',
     'djangoformsetjs',
     'compressor',

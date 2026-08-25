@@ -74,10 +74,10 @@ from pretix.base.decimal import round_decimal
 from pretix.base.i18n import language
 from pretix.base.models import (
     CachedCombinedTicket, CachedTicket, Checkin, Device, EventMetaValue,
-    InstallmentPlan, Invoice, InvoiceAddress, ItemMetaValue, ItemVariation,
+    Invoice, InvoiceAddress, ItemMetaValue, ItemVariation,
     ItemVariationMetaValue, Order, OrderFee, OrderPayment, OrderPosition,
-    OrderRefund, Quota, ReusableMedium, ScheduledInstallment, SubEvent,
-    SubEventMetaValue, TaxRule, TeamAPIToken, generate_secret,
+    OrderRefund, Quota, ReusableMedium, SubEvent, SubEventMetaValue, TaxRule,
+    TeamAPIToken, generate_secret,
 )
 from pretix.base.models.orders import (
     BlockedTicketSecret, PrintLog, QuestionAnswer, RevokedTicketSecret,
@@ -105,6 +105,7 @@ from pretix.base.signals import (
     order_modified, order_paid, order_placed, register_ticket_outputs,
 )
 from pretix.control.signals import order_search_filter_q
+from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 from pretix.helpers import OF_SELF
 
 logger = logging.getLogger(__name__)

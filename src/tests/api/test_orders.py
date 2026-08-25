@@ -34,10 +34,9 @@ from stripe import error
 from tests.plugins.stripe.test_checkout import apple_domain_create
 from tests.plugins.stripe.test_provider import MockedCharge
 
-from pretix.base.models import (
-    InstallmentPlan, InvoiceAddress, Order, OrderPosition, Team,
-)
+from pretix.base.models import InvoiceAddress, Order, OrderPosition, Team
 from pretix.base.models.orders import OrderFee, OrderPayment, OrderRefund
+from pretix.efcc.models import InstallmentPlan
 
 
 @pytest.fixture
