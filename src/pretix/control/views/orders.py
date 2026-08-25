@@ -97,6 +97,7 @@ from pretix.base.services.export import (
 )
 from pretix.base.services.installments import (
     cancel_installment_plan, process_single_installment,
+    request_push_installment,
 )
 from pretix.base.services.invoices import (
     generate_cancellation, generate_invoice, invoice_pdf, invoice_pdf_task,
@@ -587,6 +588,12 @@ class OrderDetail(OrderView):
             ctx['has_failed_installments'] = installment_plan.installments.filter(
                 state=ScheduledInstallment.STATE_FAILED
             ).exists()
+            ctx['installment_scheduled_total'] = installment_plan.scheduled_total
+            ctx['installment_paid_amount'] = installment_plan.paid_amount
+            ctx['installment_remaining_amount'] = installment_plan.remaining_amount
+            ctx['overdue_installment'] = next(
+                (i for i in ctx['installments'] if i.is_overdue), None
+            )
 
         return ctx
 
@@ -1048,6 +1055,77 @@ class OrderInstallmentRetry(OrderView):
             'order': self.order,
             'plan': plan,
             'failed_installment': failed_installment,
+        })
+
+
+class OrderInstallmentRemind(OrderView):
+    """
+    Asks the customer again for an installment they are supposed to pay themselves.
+
+    The counterpart of :py:class:`OrderInstallmentRetry` for push plans: there is nothing to
+    retry, we can only send the payment instructions once more.
+    """
+    permission = 'event.orders:write'
+
+    def _plan_and_installment(self):
+        try:
+            plan = self.order.installment_plan
+        except InstallmentPlan.DoesNotExist:
+            messages.error(self.request, _('This order does not have an installment plan.'))
+            return None, None
+
+        if not plan.is_push:
+            messages.error(self.request, _('This installment plan is charged automatically.'))
+            return None, None
+
+        if plan.status != InstallmentPlan.STATUS_ACTIVE:
+            messages.error(self.request, _('This installment plan is not active.'))
+            return None, None
+
+        installment = plan.installments.filter(
+            state=ScheduledInstallment.STATE_PENDING,
+            due_date__lte=now(),
+        ).order_by('installment_number').first()
+
+        if not installment:
+            messages.error(self.request, _('No installment is currently due.'))
+            return None, None
+
+        return plan, installment
+
+    def post(self, *args, **kwargs):
+        plan, installment = self._plan_and_installment()
+        if not installment:
+            return redirect(self.get_order_url())
+
+        # The notice is only ever sent once per installment, so clear the marker to send it again.
+        installment.overdue_notice_sent = False
+        installment.save(update_fields=['overdue_notice_sent'])
+
+        try:
+            sent = request_push_installment(installment)
+        except Exception as e:
+            messages.error(self.request, _('Failed to send the payment request: {error}').format(error=str(e)))
+        else:
+            if sent:
+                self.order.log_action('pretix.event.order.installment.reminded', user=self.request.user, data={
+                    'installment_number': installment.installment_number,
+                })
+                messages.success(self.request, _('The payment request has been sent to the customer.'))
+            else:
+                messages.error(self.request, _('The payment request could not be sent.'))
+
+        return redirect(self.get_order_url())
+
+    def get(self, *args, **kwargs):
+        plan, installment = self._plan_and_installment()
+        if not installment:
+            return redirect(self.get_order_url())
+
+        return render(self.request, 'pretixcontrol/order/installment_remind.html', {
+            'order': self.order,
+            'plan': plan,
+            'installment': installment,
         })
 
 

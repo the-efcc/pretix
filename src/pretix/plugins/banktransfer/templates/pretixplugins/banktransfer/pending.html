@@ -11,9 +11,15 @@
 {% if pending_description %}
     {{ pending_description|rich_text }}
 {% endif %}
-<p>{% blocktrans trimmed %}
-    Please transfer the full amount to the following bank account:
-{% endblocktrans %}</p>
+{% if installment %}
+    <p>{% blocktrans trimmed with number=installment.installment_number total=installment.plan.total_installments %}
+        Please transfer installment {{ number }} of {{ total }} to the following bank account:
+    {% endblocktrans %}</p>
+{% else %}
+    <p>{% blocktrans trimmed %}
+        Please transfer the full amount to the following bank account:
+    {% endblocktrans %}</p>
+{% endif %}
 
 <div class="row">
     <div class="{% if payment_qr_codes %}col-md-6{% else %}col-md-12{% endif %} col-xs-12">
@@ -33,6 +39,15 @@
         <p class="text-muted">
             {% trans "There is no further action required on this website." %}
             {% trans "We will send you an email as soon as we received your payment." %}
+            {% if installment.installments_after %}
+                {% blocktrans trimmed count remaining=installment.installments_after %}
+                    Afterwards, one more installment remains, which you also transfer yourself. We will email you the
+                    details before it is due.
+                {% plural %}
+                    Afterwards, {{ remaining }} more installments remain, which you also transfer yourself. We will
+                    email you the details before each of them is due.
+                {% endblocktrans %}
+            {% endif %}
         </p>
     </div>
     {% if payment_qr_codes %}

@@ -1947,17 +1947,28 @@ class OrderPayment(models.Model):
         self.refresh_from_db()
 
         # efcc: an installment payment settles the scheduled installment it belongs to.
-        from pretix.efcc.models import ScheduledInstallment
+        from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
         installment = ScheduledInstallment.objects.filter(
             payment=self,
             state__in=(ScheduledInstallment.STATE_PENDING, ScheduledInstallment.STATE_FAILED),
-        ).first()
-        if installment is not None:
+        ).select_related('plan').first()
+        if installment is not None and not installment.plan.is_push:
             installment.plan.record_successful_payment()
             ScheduledInstallment.objects.filter(pk=installment.pk).update(
                 state=ScheduledInstallment.STATE_PAID, processed_at=now()
             )
+        else:
+            # Push installments (bank transfer) cannot be tied to a single scheduled installment:
+            # the customer may transfer a round number, pay early, or settle two at once. So we
+            # re-derive the whole plan from what the order has been paid.
+            plan = InstallmentPlan.objects.filter(
+                order_id=self.order_id,
+                mode=InstallmentPlan.MODE_PUSH,
+                status=InstallmentPlan.STATUS_ACTIVE,
+            ).first()
+            if plan is not None:
+                plan.reconcile_from_payments(payment=self)
 
         self.order.log_action('pretix.event.order.payment.confirmed', {
             'local_id': self.local_id,

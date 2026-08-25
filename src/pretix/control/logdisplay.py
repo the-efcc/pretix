@@ -585,6 +585,19 @@ def pretixcontrol_orderposition_blocked_display(sender: Event, orderposition, bl
                                                                 'approval.'),
     'pretix.event.order.email.resend': _('An email with a link to the order detail page has been resent to the user.'),
     'pretix.event.order.email.payment_failed': _('An email has been sent to notify the user that the payment failed.'),
+    'pretix.event.order.installment.due': _('An email has been sent to ask the user to pay the installment that '
+                                            'is now due.'),
+    'pretix.event.order.installment.failed': _('An email has been sent to notify the user that an installment '
+                                               'payment failed.'),
+    'pretix.event.order.installment.reminder': _('An email has been sent to remind the user of an upcoming '
+                                                 'installment.'),
+    'pretix.event.order.installment.grace_warning': _('An email has been sent to warn the user that the order will '
+                                                      'be canceled if the installment is not paid.'),
+    'pretix.event.order.installment.cancelled': _('An email has been sent to notify the user that the order was '
+                                                  'canceled over an unpaid installment.'),
+    'pretix.event.order.installment.reminded': _('The payment request for installment {installment_number} has been '
+                                                 'sent to the user again.'),
+    'pretix.event.order.installment_plan.canceled': _('The installment plan has been canceled.'),
 })
 class CoreOrderLogEntryType(OrderLogEntryType):
     pass

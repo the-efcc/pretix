@@ -180,3 +180,51 @@ class TestInstallmentPlanAPI:
             order2 = _order_without_plan(orga, event, 'LMN88')
         resp = token_client.delete(_url(orga, event, order2))
         assert resp.status_code == 404
+
+
+@pytest.mark.django_db
+class TestPushInstallmentPlanAPI:
+
+    def _make_push(self, plan):
+        plan.mode = InstallmentPlan.MODE_PUSH
+        plan.payment_token = {}
+        plan.save(update_fields=['mode', 'payment_token'])
+        return plan
+
+    def test_plan_reports_mode_and_amounts(self, token_client, env):
+        orga, event, order, plan = env
+        with scope(organizer=orga):
+            self._make_push(plan)
+        resp = token_client.get(_url(orga, event, order))
+        assert resp.status_code == 200
+        assert resp.data['mode'] == 'push'
+        assert resp.data['total_amount'] == '200.00'
+        assert resp.data['paid_amount'] == '0.00'
+        assert resp.data['remaining_amount'] == '200.00'
+
+    def test_pull_plan_reports_pull_mode(self, token_client, env):
+        orga, event, order, plan = env
+        resp = token_client.get(_url(orga, event, order))
+        assert resp.data['mode'] == 'pull'
+
+    def test_retry_is_refused_for_push_plans(self, token_client, env):
+        orga, event, order, plan = env
+        with scope(organizer=orga):
+            self._make_push(plan)
+        resp = token_client.post(_url(orga, event, order, 'retry/'))
+        assert resp.status_code == 400
+        assert 'nothing to retry' in resp.data['error']
+
+    def test_remind_is_refused_for_pull_plans(self, token_client, env):
+        orga, event, order, plan = env
+        resp = token_client.post(_url(orga, event, order, 'remind/'))
+        assert resp.status_code == 400
+        assert 'charged automatically' in resp.data['error']
+
+    def test_remind_is_refused_when_nothing_is_due(self, token_client, env):
+        orga, event, order, plan = env
+        with scope(organizer=orga):
+            self._make_push(plan)
+        resp = token_client.post(_url(orga, event, order, 'remind/'))
+        assert resp.status_code == 400
+        assert 'No installment is currently due' in resp.data['error']

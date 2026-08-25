@@ -33,9 +33,10 @@ from django.utils.timezone import now
 from django_scopes import scopes_disabled
 
 from pretix.base.email import get_email_context
-from pretix.base.i18n import language
+from pretix.base.i18n import LazyExpiresDate, language
 from pretix.base.models import Order, OrderFee, OrderPayment
 from pretix.base.signals import order_canceled, periodic_task
+from pretix.base.templatetags.money import money_filter
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 from pretix.helpers.periodic import minimum_interval
 from pretix.multidomain.urlreverse import eventreverse_absolute
@@ -82,6 +83,23 @@ def get_max_installments_for_event(event, reference_date=None) -> int:
     return min(months_diff, max_installments)
 
 
+def installment_mode_for_provider(provider) -> str:
+    """
+    Determine how installments would be collected for a payment provider.
+
+    :param provider: The payment provider instance
+    :return: :py:attr:`InstallmentPlan.MODE_PULL`, :py:attr:`InstallmentPlan.MODE_PUSH`, or None
+             if the provider does not support installments at all
+    """
+    if provider is None:
+        return None
+    if getattr(provider, 'installments_supported', False):
+        return InstallmentPlan.MODE_PULL
+    if getattr(provider, 'push_installments_supported', False):
+        return InstallmentPlan.MODE_PUSH
+    return None
+
+
 def installments_available_for_event(event, provider, cart_total: Decimal) -> bool:
     """
     Check if installments are available for an event, provider, and cart total.
@@ -91,7 +109,7 @@ def installments_available_for_event(event, provider, cart_total: Decimal) -> bo
     :param cart_total: The total cart/order value
     :return: True if installments are available
     """
-    if not provider or not getattr(provider, 'installments_supported', False):
+    if installment_mode_for_provider(provider) is None:
         return False
 
     if not event.settings.get('installments_enabled', as_type=bool, default=False):
@@ -158,7 +176,8 @@ def create_installment_plan(
     event = order.event
     provider = event.get_payment_providers().get(provider_name)
 
-    if not provider or not getattr(provider, 'installments_supported', False):
+    mode = installment_mode_for_provider(provider)
+    if mode is None:
         raise ValueError(f"Provider '{provider_name}' does not support installments or is not active.")
 
     max_allowed = get_max_installments_for_event(event, reference_date=order.datetime)
@@ -182,6 +201,7 @@ def create_installment_plan(
     plan = InstallmentPlan.objects.create(
         order=order,
         payment_provider=provider_name,
+        mode=mode,
         payment_token={},
         total_installments=installments_count,
         installments_paid=0,
@@ -208,15 +228,26 @@ def create_installment_plan(
         payment=payment,
     )
 
+    last_due_date = now()
     for i, amount in enumerate(amounts[1:], start=2):
-        due_date = now() + relativedelta(months=i - 1)
+        last_due_date = now() + relativedelta(months=i - 1)
         ScheduledInstallment.objects.create(
             plan=plan,
             installment_number=i,
             amount=amount,
-            due_date=due_date,
+            due_date=last_due_date,
             state=ScheduledInstallment.STATE_PENDING
         )
+
+    if mode == InstallmentPlan.MODE_PUSH:
+        # The customer pays each installment themselves, so the order has to stay open until the
+        # schedule is over. `expire_orders` already skips orders with an active plan, but the date
+        # shown to the customer and used once the plan ends should match the schedule.
+        grace_days = event.settings.get('installments_grace_period_days', as_type=int, default=7)
+        expires = last_due_date + timedelta(days=grace_days)
+        if order.expires < expires:
+            order.expires = expires
+            order.save(update_fields=['expires'])
 
     return plan
 
@@ -300,7 +331,7 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
                     context = get_email_context(event=event, order=order)
                     context.update({
                         'failure_reason': installment.failure_reason or '',
-                        'expire_date': plan.grace_period_end,
+                        'expire_date': LazyExpiresDate(plan.grace_period_end.astimezone(event.timezone)),
                         'url': eventreverse_absolute(
                             event, 'presale:event.order.installment.recovery',
                             kwargs={'order': order.code, 'secret': order.secret}
@@ -325,9 +356,13 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
 def process_due_installments():
     """
     Processes all scheduled installments that are due and pending.
+
+    Only covers plans we collect ourselves; see :py:func:`process_due_push_installments` for
+    the ones the customer pays.
     """
     with scopes_disabled():
         qs = ScheduledInstallment.objects.filter(
+            plan__mode=InstallmentPlan.MODE_PULL,
             state=ScheduledInstallment.STATE_PENDING,
             due_date__lte=now()
         ).select_related('plan', 'plan__order', 'plan__order__event')
@@ -340,6 +375,168 @@ def process_due_installments():
                 "Error processing installment %s for order %s",
                 installment.pk, installment.plan.order.code,
             )
+
+
+def get_or_create_push_payment(installment: ScheduledInstallment) -> OrderPayment:
+    """
+    Make sure the customer has something to pay for a push installment.
+
+    The payment carries the amount and gives the provider (e.g. bank transfer) somewhere to
+    render its payment instructions. An existing open payment of the same amount is reused,
+    because the bank transfer importer matches incoming transactions against those.
+
+    :param installment: The ScheduledInstallment that is due
+    :return: The open OrderPayment for this installment
+    """
+    plan = installment.plan
+    order = plan.order
+
+    if installment.payment_id and installment.payment.state in (
+        OrderPayment.PAYMENT_STATE_CREATED, OrderPayment.PAYMENT_STATE_PENDING
+    ):
+        return installment.payment
+
+    payment = order.payments.filter(
+        provider=plan.payment_provider,
+        amount=installment.amount,
+        state__in=(OrderPayment.PAYMENT_STATE_CREATED, OrderPayment.PAYMENT_STATE_PENDING),
+    ).exclude(
+        # Never adopt a payment another installment is already waiting for: two installments
+        # pointing at one payment would make it ambiguous which one it settles.
+        installment__isnull=False
+    ).last()
+    if payment is None:
+        payment = order.payments.create(
+            state=OrderPayment.PAYMENT_STATE_CREATED,
+            provider=plan.payment_provider,
+            amount=installment.amount,
+            process_initiated=False,
+        )
+
+    if installment.payment_id != payment.pk:
+        installment.payment = payment
+        installment.save(update_fields=['payment'])
+    return payment
+
+
+def is_next_open_installment(installment: ScheduledInstallment) -> bool:
+    """
+    Whether this is the installment the customer should be paying right now.
+
+    A push plan only ever has one open ask at a time: two open payments of the same amount
+    would be ambiguous for the bank transfer importer, and asking somebody to pay next month's
+    installment while they still owe this month's helps nobody.
+    """
+    return not installment.plan.installments.filter(
+        state=ScheduledInstallment.STATE_PENDING,
+        installment_number__lt=installment.installment_number,
+    ).exists()
+
+
+@transaction.atomic
+def request_push_installment(installment: ScheduledInstallment, send_mail: bool = True) -> bool:
+    """
+    Ask the customer to pay a push installment that has come due.
+
+    Opens a payment so the provider can render its instructions, starts the grace period after
+    which the order is cancelled, and sends the customer a notice. Does nothing beyond
+    reconciling if the money has arrived in the meantime.
+
+    :param installment: The due ScheduledInstallment
+    :param send_mail: Whether to send the notice email (default True)
+    :return: True if the customer was asked to pay
+    """
+    with scopes_disabled():
+        plan = installment.plan
+        order = plan.order
+        event = order.event
+
+        # Money may have arrived without us noticing, e.g. because an organizer marked a
+        # payment as paid by hand.
+        plan.reconcile_from_payments()
+        installment.refresh_from_db()
+        if installment.state != ScheduledInstallment.STATE_PENDING:
+            return False
+        if plan.status != InstallmentPlan.STATUS_ACTIVE:
+            return False
+        if not is_next_open_installment(installment):
+            return False
+
+        provider = event.get_payment_providers().get(plan.payment_provider)
+        if not provider:
+            logger.error(
+                "Cannot request installment %s for order %s: provider %s is not available.",
+                installment.pk, order.code, plan.payment_provider,
+            )
+            return False
+
+        payment = get_or_create_push_payment(installment)
+
+        if installment.overdue_notice_sent:
+            return False
+
+        if not plan.grace_period_end:
+            days = event.settings.get('installments_grace_period_days', as_type=int, default=7)
+            plan.grace_period_end = now() + timedelta(days=days)
+            plan.grace_warning_sent = False
+            plan.save(update_fields=['grace_period_end', 'grace_warning_sent'])
+
+        if send_mail:
+            with language(order.locale, event.settings.region):
+                context = get_email_context(event=event, order=order)
+                context.update({
+                    'amount': money_filter(installment.amount, event.currency),
+                    'installment_number': installment.installment_number,
+                    'total_installments': plan.total_installments,
+                    'expire_date': LazyExpiresDate(plan.grace_period_end.astimezone(event.timezone)),
+                    'payment_info': provider.order_pending_mail_render(order, payment),
+                })
+                try:
+                    order.send_mail(
+                        event.settings.mail_subject_installment_due,
+                        event.settings.mail_text_installment_due,
+                        context,
+                        'pretix.event.order.installment.due',
+                    )
+                except Exception:
+                    logger.warning(
+                        "Failed to send installment due email for order %s", order.code,
+                    )
+
+        installment.overdue_notice_sent = True
+        installment.save(update_fields=['overdue_notice_sent'])
+        return True
+
+
+def process_due_push_installments():
+    """
+    Asks customers to pay the push installments that have come due.
+
+    Only the earliest open installment of a plan is chased at a time: asking somebody to pay
+    three months at once because we are behind on processing helps nobody.
+    """
+    with scopes_disabled():
+        qs = ScheduledInstallment.objects.filter(
+            plan__mode=InstallmentPlan.MODE_PUSH,
+            plan__status=InstallmentPlan.STATUS_ACTIVE,
+            state=ScheduledInstallment.STATE_PENDING,
+            due_date__lte=now(),
+        ).select_related(
+            'plan', 'plan__order', 'plan__order__event'
+        ).order_by('plan_id', 'installment_number')
+
+        handled_plans = set()
+        for installment in qs:
+            if installment.plan_id in handled_plans:
+                continue
+            handled_plans.add(installment.plan_id)
+            try:
+                request_push_installment(installment)
+            except Exception:
+                logger.exception(
+                    "Error requesting installment %s for order %s",
+                    installment.pk, installment.plan.order.code,
+                )
 
 
 def process_expired_plans():
@@ -394,40 +591,52 @@ def send_installment_reminders():
             due_date__lte=now() + timedelta(days=30)
         ).select_related('plan', 'plan__order', 'plan__order__event')
 
-    for installment in qs:
-        order = installment.plan.order
-        event = order.event
+        for installment in qs:
+            plan = installment.plan
+            order = plan.order
+            event = order.event
 
-        provider = event.get_payment_providers().get(installment.plan.payment_provider)
-        if not provider:
-            continue
+            provider = event.get_payment_providers().get(plan.payment_provider)
+            if not provider:
+                continue
 
-        days = event.settings.get('installments_reminder_days', as_type=int, default=3)
+            days = event.settings.get('installments_reminder_days', as_type=int, default=3)
 
-        if now() >= installment.due_date - timedelta(days=days):
-            with language(order.locale, event.settings.region):
-                email_subject = event.settings.mail_subject_installment_reminder
-                email_template = event.settings.mail_text_installment_reminder
+            if now() >= installment.due_date - timedelta(days=days):
+                with language(order.locale, event.settings.region):
+                    email_subject = event.settings.mail_subject_installment_reminder
+                    email_template = event.settings.mail_text_installment_reminder
 
-                context = get_email_context(event=event, order=order)
-                context.update({
-                    'amount': installment.amount,
-                    'date': installment.due_date,
-                    'installment_number': installment.installment_number,
-                })
+                    context = get_email_context(event=event, order=order)
+                    context.update({
+                        'amount': money_filter(installment.amount, event.currency),
+                        'date': LazyExpiresDate(installment.due_date.astimezone(event.timezone)),
+                        'installment_number': installment.installment_number,
+                        'payment_info': '',
+                    })
+                    if plan.is_push:
+                        if not is_next_open_installment(installment):
+                            # They still owe us an earlier installment; chasing this one on top of
+                            # that would only muddy the waters.
+                            continue
+                        # The customer has to send the money themselves, so the reminder needs to
+                        # carry the payment instructions. Opening the payment now also lets them
+                        # pay ahead of the due date.
+                        payment = get_or_create_push_payment(installment)
+                        context['payment_info'] = provider.order_pending_mail_render(order, payment)
 
-                try:
-                    order.send_mail(
-                        email_subject, email_template, context,
-                        'pretix.event.order.installment.reminder'
-                    )
-                    installment.reminder_sent = True
-                    installment.save(update_fields=['reminder_sent'])
-                except Exception:
-                    logger.warning(
-                        "Failed to send reminder email for installment %s, order %s",
-                        installment.pk, order.code,
-                    )
+                    try:
+                        order.send_mail(
+                            email_subject, email_template, context,
+                            'pretix.event.order.installment.reminder'
+                        )
+                        installment.reminder_sent = True
+                        installment.save(update_fields=['reminder_sent'])
+                    except Exception:
+                        logger.warning(
+                            "Failed to send reminder email for installment %s, order %s",
+                            installment.pk, order.code,
+                        )
 
 
 def send_grace_period_warnings():
@@ -453,7 +662,7 @@ def send_grace_period_warnings():
 
             context = get_email_context(event=event, order=order)
             context.update({
-                'expire_date': plan.grace_period_end,
+                'expire_date': LazyExpiresDate(plan.grace_period_end.astimezone(event.timezone)),
             })
 
             try:
@@ -489,7 +698,7 @@ def cancel_installment_plan(plan: InstallmentPlan, cancel_order: bool = False, u
         event = order.event
 
         provider = event.get_payment_providers().get(plan.payment_provider)
-        if provider:
+        if provider and not plan.is_push:
             try:
                 provider.revoke_payment_token(plan)
             except Exception:
@@ -537,6 +746,7 @@ def handle_order_cancellation(sender, **kwargs):
 @minimum_interval(minutes_after_success=10, minutes_after_error=2)
 def run_installment_processing(sender, **kwargs):
     process_due_installments()
+    process_due_push_installments()
     process_expired_plans()
     send_installment_reminders()
     send_grace_period_warnings()

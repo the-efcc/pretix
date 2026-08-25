@@ -1155,6 +1155,23 @@ class BasePaymentProvider:
         """
         return False
 
+    @property
+    def push_installments_supported(self) -> bool:
+        """
+        Indicates whether this payment provider supports customer-initiated installment payments.
+
+        Unlike :py:attr:`installments_supported`, no payment token is stored and nothing is charged
+        automatically: the provider hands the customer payment instructions for every installment
+        and pretix waits for the money to arrive. Bank transfer is the typical example.
+
+        Providers that set this do not need to implement execute_installment or
+        revoke_payment_token.
+
+        :return: True if the provider supports customer-initiated installments, False otherwise
+                 (default)
+        """
+        return False
+
     def execute_installment(self, plan: 'InstallmentPlan', installment: 'ScheduledInstallment') -> bool:
         """
         Execute a scheduled installment payment using the stored payment token.

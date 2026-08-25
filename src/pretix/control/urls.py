@@ -453,6 +453,8 @@ urlpatterns = [
                 name='event.order.installment_plan.cancel'),
         re_path(r'^orders/(?P<code>[0-9A-Z]+)/installment-plan/retry$', orders.OrderInstallmentRetry.as_view(),
                 name='event.order.installment_plan.retry'),
+        re_path(r'^orders/(?P<code>[0-9A-Z]+)/installment-plan/remind$', orders.OrderInstallmentRemind.as_view(),
+                name='event.order.installment_plan.remind'),
         re_path(r'^orders/(?P<code>[0-9A-Z]+)/cancellationrequests/(?P<req>\d+)/delete$',
                 orders.OrderCancellationRequestDelete.as_view(),
                 name='event.order.cancellationrequests.delete'),

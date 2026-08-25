@@ -1063,10 +1063,25 @@
                                     <dd>{{ installment_plan.total_installments }}</dd>
                                     <dt>{% trans "Paid installments" %}</dt>
                                     <dd>{{ installment_plan.installments_paid }} / {{ installment_plan.total_installments }}</dd>
+                                    <dt>{% trans "Plan total" %}</dt>
+                                    <dd>{{ installment_scheduled_total|money:request.event.currency }}</dd>
+                                    <dt>{% trans "Already paid" %}</dt>
+                                    <dd>{{ installment_paid_amount|money:request.event.currency }}</dd>
+                                    <dt>{% trans "Left to pay" %}</dt>
+                                    <dd>
+                                        <strong>{{ installment_remaining_amount|money:request.event.currency }}</strong>
+                                        {% if overdue_installment %}
+                                            <span class="label label-danger">
+                                                {% blocktrans trimmed with amount=overdue_installment.amount|money:request.event.currency %}
+                                                    {{ amount }} overdue
+                                                {% endblocktrans %}
+                                            </span>
+                                        {% endif %}
+                                    </dd>
                                     <dt>{% trans "Amount per installment" %}</dt>
                                     <dd>{{ installment_plan.amount_per_installment|money:request.event.currency }}</dd>
                                     <dt>{% trans "Payment provider" %}</dt>
-                                    <dd>{{ installment_plan.payment_provider }}</dd>
+                                    <dd>{{ installment_plan.payment_provider }} ({{ installment_plan.get_mode_display }})</dd>
                                 </dl>
                                 <div class="table-responsive">
                                     <table class="table table-condensed table-striped">
@@ -1087,8 +1102,12 @@
                                                 <td>{{ inst.amount|money:request.event.currency }}</td>
                                                 <td>{{ inst.due_date|date:"SHORT_DATE_FORMAT" }}</td>
                                                 <td>
-                                                    <span class="label label-{% if inst.state == 'paid' %}success{% elif inst.state == 'failed' %}danger{% elif inst.state == 'cancelled' %}default{% else %}warning{% endif %}">
-                                                        {{ inst.get_state_display }}
+                                                    <span class="label label-{% if inst.state == 'paid' %}success{% elif inst.state == 'failed' or inst.is_overdue %}danger{% elif inst.state == 'cancelled' %}default{% else %}warning{% endif %}">
+                                                        {% if inst.is_overdue %}
+                                                            {% trans "overdue" context "installment_state" %}
+                                                        {% else %}
+                                                            {{ inst.get_state_display }}
+                                                        {% endif %}
                                                     </span>
                                                 </td>
                                                 <td>{{ inst.processed_at|date:"SHORT_DATETIME_FORMAT"|default:"—" }}</td>
@@ -1112,11 +1131,18 @@
                                                 <span class="fa fa-ban"></span>
                                                 {% trans "Cancel installment plan" %}
                                             </a>
-                                            {% if has_failed_installments %}
+                                            {% if has_failed_installments and not installment_plan.is_push %}
                                                 <a href="{% url "control:event.order.installment_plan.retry" event=request.event.slug organizer=request.event.organizer.slug code=order.code %}"
                                                    class="btn btn-warning">
                                                     <span class="fa fa-repeat"></span>
                                                     {% trans "Retry failed installment" %}
+                                                </a>
+                                            {% endif %}
+                                            {% if installment_plan.is_push and overdue_installment %}
+                                                <a href="{% url "control:event.order.installment_plan.remind" event=request.event.slug organizer=request.event.organizer.slug code=order.code %}"
+                                                   class="btn btn-warning">
+                                                    <span class="fa fa-envelope"></span>
+                                                    {% trans "Request installment payment" %}
                                                 </a>
                                             {% endif %}
                                         </div>

@@ -44,6 +44,10 @@
                         <strong>
                             {% trans "Please note that we still await approval by the event organizer before you can pay and complete this order." %}
                         </strong>
+                    {% elif installment_plan.is_push %}
+                        <strong>
+                            {% trans "You are paying this order in installments, which you send us yourself. The details for the payment that is due are below, and we will remind you before each of the following ones." %}
+                        </strong>
                     {% elif installment_plan %}
                         <strong>
                             {% trans "Your first installment has been received. The remaining installments will be charged automatically according to schedule." %}
@@ -128,6 +132,36 @@
                 {% endif %}
             </div>
         </div>
+    {% elif order.status == "n" and not order.require_approval and installment_plan.is_push and last_payment %}
+        <div class="panel panel-primary">
+            <div class="panel-heading">
+                <h3 class="panel-title">
+                    {% trans "Next installment" %}
+                </h3>
+            </div>
+            <div class="panel-body">
+                <p>
+                    <strong>{% blocktrans trimmed with amount=last_payment.amount|money:request.event.currency number=next_installment.installment_number count=installment_plan.total_installments %}
+                        Installment {{ number }} of {{ count }}, {{ amount }}, is still pending for this order.
+                    {% endblocktrans %}</strong>
+                    {% if installment_plan.grace_period_end %}
+                        <strong>
+                            {% html_time installment_plan.grace_period_end "format_expires" as date %}
+                            {% blocktrans trimmed with date=date %}
+                                Please make sure your payment reaches us before {{ date }}
+                            {% endblocktrans %}
+                        </strong>
+                    {% elif next_installment %}
+                        <strong>
+                            {% blocktrans trimmed with date=next_installment.due_date|date:"SHORT_DATE_FORMAT" %}
+                                It is due on {{ date }}
+                            {% endblocktrans %}
+                        </strong>
+                    {% endif %}
+                </p>
+                {{ last_payment_info }}
+            </div>
+        </div>
     {% endif %}
 
     {% if installment_plan %}
@@ -147,6 +181,12 @@
 
                     <dt>{% trans "Amount per installment" %}</dt>
                     <dd>{{ installment_plan.amount_per_installment|money:event.currency }}</dd>
+
+                    <dt>{% trans "Already paid" %}</dt>
+                    <dd>{{ installment_plan.paid_amount|money:event.currency }}</dd>
+
+                    <dt>{% trans "Left to pay" %}</dt>
+                    <dd>{{ installment_plan.remaining_amount|money:event.currency }}</dd>
 
                     {% if next_installment %}
                         <dt>{% trans "Next payment" %}</dt>

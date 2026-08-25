@@ -43,7 +43,7 @@ import dateutil.parser
 from celery.exceptions import MaxRetriesExceededError
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Max, Min, Q
+from django.db.models import Exists, Max, Min, OuterRef, Q
 from django.db.models.functions import Length
 from django.utils.timezone import now
 from django.utils.translation import gettext_noop
@@ -59,6 +59,7 @@ from pretix.base.services.locking import LockTimeoutException
 from pretix.base.services.orders import change_payment_provider
 from pretix.base.services.tasks import TransactionAwareTask
 from pretix.celery_app import app
+from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
 from .models import BankImportJob, BankTransaction
 
@@ -82,6 +83,13 @@ def cancel_old_payments(order):
         state__in=(OrderPayment.PAYMENT_STATE_PENDING,
                    OrderPayment.PAYMENT_STATE_CREATED),
         provider='banktransfer',
+    ).exclude(
+        # A payment that belongs to a scheduled installment is not a leftover of a previous
+        # attempt, it is the next one we asked the customer for.
+        Exists(ScheduledInstallment.objects.filter(
+            payment_id=OuterRef('pk'),
+            state=ScheduledInstallment.STATE_PENDING,
+        ))
     ):
         try:
             with transaction.atomic():
@@ -201,6 +209,9 @@ def _handle_transaction(trans: BankTransaction, matches: tuple, regex_match_to_s
 
     trans.state = BankTransaction.STATE_VALID
     for order, amount in splits:
+        pays_in_installments = InstallmentPlan.objects.filter(
+            order=order, status=InstallmentPlan.STATUS_ACTIVE
+        ).exists()
         info_data = {
             'reference': trans.reference,
             'date': trans.date_parsed.isoformat() if trans.date_parsed else trans.date,
@@ -270,8 +281,10 @@ def _handle_transaction(trans: BankTransaction, matches: tuple, regex_match_to_s
             **info_data,
         }
 
-        if created:
-            # We're perform a payment method switching on-demand here
+        if created and not pays_in_installments:
+            # We're perform a payment method switching on-demand here. An order paid in
+            # installments is already on bank transfer with its fee settled, and switching
+            # would cancel the payment we are asking the customer for next.
             old_fee, new_fee, fee, p, new_invoice_created = change_payment_provider(
                 order, p.payment_provider, p.amount, new_payment=p, create_log=False
             )  # noqa
@@ -288,7 +301,10 @@ def _handle_transaction(trans: BankTransaction, matches: tuple, regex_match_to_s
             cancel_old_payments(order)
 
             order.refresh_from_db()
-            if order.pending_sum > Decimal('0.00') and order.status == Order.STATUS_PENDING:
+            # An order paid in installments is meant to be underpaid until the schedule is over,
+            # so telling the customer their payment was incomplete would be wrong.
+            if order.pending_sum > Decimal('0.00') and order.status == Order.STATUS_PENDING \
+                    and not pays_in_installments:
                 notify_incomplete_payment(order)
 
     trans.save()

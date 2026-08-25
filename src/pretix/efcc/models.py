@@ -19,7 +19,10 @@
 # You should have received a copy of the GNU Affero General Public License along with this program.  If not, see
 # <https://www.gnu.org/licenses/>.
 #
+from decimal import Decimal
+
 from django.db import models, transaction
+from django.utils.timezone import now
 from django.utils.translation import gettext_lazy as _, pgettext_lazy
 from django_scopes import ScopedManager, scopes_disabled
 
@@ -32,6 +35,9 @@ class InstallmentPlan(models.Model):
     :type order: Order
     :param payment_provider: The payment provider handling the installments
     :type payment_provider: str
+    :param mode: Whether the installments are collected by us (``pull``) or sent by the
+                 customer on their own (``push``, e.g. bank transfer)
+    :type mode: str
     :param payment_token: Tokenized payment method data (provider-specific)
     :type payment_token: dict
     :param total_installments: Total number of installments in the plan
@@ -61,6 +67,16 @@ class InstallmentPlan(models.Model):
         (STATUS_CANCELLED, pgettext_lazy('installment_status', 'cancelled')),
     )
 
+    #: We charge the customer ourselves using a stored payment token.
+    MODE_PULL = 'pull'
+    #: The customer sends the money on their own, we can only ask and wait (bank transfer).
+    MODE_PUSH = 'push'
+
+    MODE_CHOICES = (
+        (MODE_PULL, pgettext_lazy('installment_mode', 'charged automatically')),
+        (MODE_PUSH, pgettext_lazy('installment_mode', 'paid by the customer')),
+    )
+
     order = models.OneToOneField(
         'pretixbase.Order',
         verbose_name=_("Order"),
@@ -70,6 +86,12 @@ class InstallmentPlan(models.Model):
     payment_provider = models.CharField(
         max_length=255,
         verbose_name=_("Payment provider")
+    )
+    mode = models.CharField(
+        max_length=10,
+        choices=MODE_CHOICES,
+        default=MODE_PULL,
+        verbose_name=_("Collection mode")
     )
     payment_token = models.JSONField(
         verbose_name=_("Payment token"),
@@ -115,6 +137,94 @@ class InstallmentPlan(models.Model):
 
     class Meta:
         ordering = ('-created_at',)
+
+    @property
+    def is_push(self) -> bool:
+        return self.mode == self.MODE_PUSH
+
+    @property
+    def scheduled_total(self) -> Decimal:
+        """Sum of all installments that are still part of the plan."""
+        total = self.installments.exclude(
+            state=ScheduledInstallment.STATE_CANCELLED
+        ).aggregate(s=models.Sum('amount'))['s'] or Decimal('0.00')
+        return total.quantize(Decimal('0.01'))
+
+    @property
+    def paid_amount(self) -> Decimal:
+        """
+        How much of the plan has been settled so far.
+
+        This is derived from the order rather than from the installment rows: what the
+        order no longer owes is what the plan has been paid down by. That way a customer
+        who transfers a round number, pays early, or settles two installments at once is
+        still accounted for correctly.
+        """
+        return max(Decimal('0.00'), self.scheduled_total - self.order.pending_sum)
+
+    @property
+    def remaining_amount(self) -> Decimal:
+        return max(Decimal('0.00'), self.scheduled_total - self.paid_amount)
+
+    @transaction.atomic
+    def reconcile_from_payments(self, payment=None) -> bool:
+        """
+        Recompute the plan from the money actually received, for push plans.
+
+        Unlike a tokenized charge, an incoming bank transfer cannot be tied to a specific
+        installment up front, so we allocate what the order has been paid to the
+        installments in order and mark every fully covered one as paid.
+
+        :param payment: The OrderPayment that triggered this, if any. Newly settled
+                        installments without a payment of their own are linked to it.
+        :return: True if the plan is now completed
+        """
+        with scopes_disabled():
+            plan = InstallmentPlan.objects.select_for_update().get(pk=self.pk)
+            if plan.status not in (InstallmentPlan.STATUS_ACTIVE, InstallmentPlan.STATUS_COMPLETED):
+                return False
+
+            installments = list(
+                plan.installments.exclude(state=ScheduledInstallment.STATE_CANCELLED)
+                .order_by('installment_number')
+            )
+            received = max(Decimal('0.00'), plan.scheduled_total - plan.order.pending_sum)
+
+            covered = Decimal('0.00')
+            paid_count = 0
+            overdue = False
+            for installment in installments:
+                covered += installment.amount
+                if received >= covered:
+                    paid_count += 1
+                    if installment.state != ScheduledInstallment.STATE_PAID:
+                        installment.state = ScheduledInstallment.STATE_PAID
+                        installment.processed_at = now()
+                        if payment is not None and installment.payment_id is None:
+                            installment.payment = payment
+                        installment.save(update_fields=['state', 'processed_at', 'payment'])
+                else:
+                    if installment.due_date <= now():
+                        overdue = True
+                    break
+
+            update_fields = ['installments_paid']
+            plan.installments_paid = paid_count
+            if paid_count >= len(installments) and installments:
+                plan.status = InstallmentPlan.STATUS_COMPLETED
+                update_fields.append('status')
+            if not overdue and plan.grace_period_end:
+                # The customer caught up, the order is no longer at risk of cancellation.
+                plan.grace_period_end = None
+                plan.grace_warning_sent = False
+                update_fields += ['grace_period_end', 'grace_warning_sent']
+            plan.save(update_fields=update_fields)
+
+            for field in self._meta.concrete_fields:
+                if not field.is_relation:
+                    setattr(self, field.attname, getattr(plan, field.attname))
+
+            return plan.status == InstallmentPlan.STATUS_COMPLETED
 
     @transaction.atomic
     def record_successful_payment(self):
@@ -232,6 +342,10 @@ class ScheduledInstallment(models.Model):
         default=False,
         verbose_name=_("Reminder sent")
     )
+    overdue_notice_sent = models.BooleanField(
+        default=False,
+        verbose_name=_("Overdue notice sent")
+    )
 
     objects = ScopedManager(organizer='plan__order__event__organizer')
 
@@ -241,6 +355,15 @@ class ScheduledInstallment(models.Model):
         indexes = [
             models.Index(fields=['due_date', 'state']),
         ]
+
+    @property
+    def is_overdue(self) -> bool:
+        return self.state == self.STATE_PENDING and self.due_date <= now()
+
+    @property
+    def installments_after(self) -> int:
+        """How many installments still follow this one."""
+        return max(0, self.plan.total_installments - self.installment_number)
 
     def __str__(self):
         return f"Installment {self.installment_number} for {self.plan.order.code}"
