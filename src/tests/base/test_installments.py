@@ -216,6 +216,7 @@ class TestPaymentProviderInstallmentInterface:
     def test_installments_supported_defaults_to_false(self, event):
         assert DummyPaymentProvider(event).installments_supported is False
 
+    @scopes_disabled()
     def test_execute_installment_raises_not_implemented(self, event, plan):
         inst = ScheduledInstallment.objects.create(
             plan=plan,
@@ -224,8 +225,13 @@ class TestPaymentProviderInstallmentInterface:
             due_date=now() + timedelta(days=30),
             state=ScheduledInstallment.STATE_PENDING,
         )
+        payment = plan.order.payments.create(
+            state=OrderPayment.PAYMENT_STATE_CREATED,
+            provider='dummy',
+            amount=Decimal('100.00'),
+        )
         with pytest.raises(NotImplementedError):
-            DummyPaymentProvider(event).execute_installment(plan, inst)
+            DummyPaymentProvider(event).execute_installment(plan, inst, payment)
 
     def test_revoke_payment_token_raises_not_implemented(self, event, plan):
         with pytest.raises(NotImplementedError):

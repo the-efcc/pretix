@@ -1155,16 +1155,25 @@ class BasePaymentProvider:
         """
         return False
 
-    def execute_installment(self, plan: 'InstallmentPlan', installment: 'ScheduledInstallment') -> bool:
+    def execute_installment(self, plan: 'InstallmentPlan', installment: 'ScheduledInstallment',
+                            payment: OrderPayment) -> bool:
         """
         Execute a scheduled installment payment using the stored payment token.
 
-        This method should charge the customer using the payment token stored in plan.payment_token
-        for the amount specified in installment.amount. On success, update the installment state
-        and create an OrderPayment record. On failure, update the installment with failure information.
+        This method should charge the customer using the payment token stored in
+        ``plan.payment_token`` for the amount specified in ``installment.amount``.
+
+        ``payment`` is an ``OrderPayment`` in state ``created`` that pretix has already
+        built for this installment. Record whatever you need to act on the payment later
+        — a transaction ID, for instance, without which you cannot refund it — by setting
+        ``payment.info_data`` before returning. You do not need to save it: pretix
+        persists ``info`` when it confirms the payment, and stores it on the failed
+        payment when you return ``False``. Do not change ``payment.state`` yourself,
+        pretix advances it based on your return value.
 
         :param plan: The InstallmentPlan containing payment token and configuration
         :param installment: The ScheduledInstallment to process
+        :param payment: The OrderPayment to record this charge against
         :return: True if the payment succeeded, False if it failed
         :raises NotImplementedError: If the provider does not support installments
         """

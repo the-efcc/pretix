@@ -84,10 +84,16 @@ def plan(order):
     )
 
 
-def _mock_provider(execute_result=True, grace_period_days=7, reminder_days=3):
+def _mock_provider(execute_result=True, grace_period_days=7, reminder_days=3, info_data=None):
     p = MagicMock()
     p.installments_supported = True
-    p.execute_installment.return_value = execute_result
+
+    def _execute(plan, installment, payment):
+        if info_data is not None:
+            payment.info_data = info_data
+        return execute_result
+
+    p.execute_installment.side_effect = _execute
     p.settings.get.return_value = grace_period_days
     return p
 
@@ -223,6 +229,85 @@ class TestProcessDueInstallments:
             assert order.all_logentries().filter(
                 action_type='pretix.event.order.payment.confirmed'
             ).exists()
+
+    def test_provider_can_record_payment_info(self, event, order, plan):
+        """The provider's transaction reference must survive onto the payment."""
+        inst = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+
+        with _patch_providers(_mock_provider(info_data={'transaction_id': 'txn_42'})):
+            with scope(organizer=event.organizer):
+                process_due_installments()
+
+        inst.refresh_from_db()
+        assert inst.payment.state == OrderPayment.PAYMENT_STATE_CONFIRMED
+        assert inst.payment.info_data == {'transaction_id': 'txn_42'}
+
+    def test_provider_receives_payment_in_created_state(self, event, order, plan):
+        """The payment must exist, and be unconfirmed, while the provider charges it."""
+        ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+        seen = {}
+
+        provider = _mock_provider()
+
+        def _execute(plan_, installment_, payment):
+            seen['state'] = payment.state
+            seen['amount'] = payment.amount
+            seen['provider'] = payment.provider
+            return True
+
+        provider.execute_installment.side_effect = _execute
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                process_due_installments()
+
+        assert seen['state'] == OrderPayment.PAYMENT_STATE_CREATED
+        assert seen['amount'] == Decimal('100.00')
+        assert seen['provider'] == 'dummy'
+
+    def test_declined_charge_leaves_a_failed_payment(self, event, order, plan):
+        """A decline is recorded as a failed payment carrying the provider's reason."""
+        inst = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+
+        with _patch_providers(_mock_provider(execute_result=False,
+                                             info_data={'error': 'card_expired'})):
+            with scope(organizer=event.organizer):
+                process_due_installments()
+
+        inst.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_FAILED
+        assert inst.payment.state == OrderPayment.PAYMENT_STATE_FAILED
+        assert inst.payment.info_data == {'error': 'card_expired'}
+
+        with scope(organizer=event.organizer):
+            order.refresh_from_db()
+            # a failed charge must not count towards what has been paid
+            assert order.pending_sum == Decimal('300.00')
+
+    def test_no_payment_created_without_a_token(self, event, order, plan):
+        """The token check short-circuits before any payment row is built."""
+        plan.payment_token = {}
+        plan.save()
+        ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                process_due_installments()
+
+        with scope(organizer=event.organizer):
+            assert order.payments.count() == 0
 
     def test_completes_plan_on_final_installment(self, event, order, plan):
         plan.total_installments = 2
