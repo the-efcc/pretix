@@ -34,7 +34,7 @@ from django_scopes import scopes_disabled
 
 from pretix.base.email import get_email_context
 from pretix.base.i18n import language
-from pretix.base.models import Order, OrderFee, OrderPayment
+from pretix.base.models import Order, OrderFee, OrderPayment, Quota
 from pretix.base.signals import order_canceled, periodic_task
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 from pretix.helpers.periodic import minimum_interval
@@ -226,9 +226,16 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
     """
     Processes a single installment payment.
 
+    On success the payment is created and then confirmed through
+    ``OrderPayment.confirm()``, so that the order reaches ``paid`` once the
+    payments cover its total. Confirming is also what settles the scheduled
+    installment and advances the plan.
+
     :param installment: The ScheduledInstallment to process
-    :param send_mail: Whether to send a failure notification email (default False)
-    :return: True if successful, False otherwise
+    :param send_mail: Whether to notify the customer — the failure notice on a
+                      declined charge, the paid confirmation when the order is
+                      settled (default False)
+    :return: True if the charge succeeded, False otherwise
     """
     with scopes_disabled():
         plan = installment.plan
@@ -262,20 +269,31 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
         if success:
             payment = OrderPayment.objects.create(
                 order=order,
-                state=OrderPayment.PAYMENT_STATE_CONFIRMED,
+                state=OrderPayment.PAYMENT_STATE_CREATED,
                 amount=installment.amount,
-                payment_date=now(),
                 provider=plan.payment_provider,
             )
 
-            installment.state = ScheduledInstallment.STATE_PAID
+            # Link the payment before confirming: OrderPayment.confirm() settles the
+            # scheduled installment and advances the plan through this relation.
             installment.payment = payment
-            installment.processed_at = now()
-            installment.save(update_fields=['state', 'payment', 'processed_at'])
+            installment.save(update_fields=['payment'])
 
-            completed = plan.record_successful_payment()
+            try:
+                payment.confirm(send_mail=send_mail)
+            except Quota.QuotaExceededException:
+                # The money is already captured and the payment is confirmed; only the
+                # order status could not be advanced. Not something we can resolve here.
+                logger.warning(
+                    "Installment %s for order %s was charged but the order could not be "
+                    "marked as paid because quota is exhausted.",
+                    installment.pk, order.code,
+                )
 
-            if completed:
+            installment.refresh_from_db()
+            plan.refresh_from_db()
+
+            if plan.status == InstallmentPlan.STATUS_COMPLETED:
                 try:
                     provider.revoke_payment_token(plan)
                 except Exception:

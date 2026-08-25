@@ -157,6 +157,73 @@ class TestProcessDueInstallments:
         assert inst.state == ScheduledInstallment.STATE_FAILED
         assert plan.grace_period_end is not None
 
+    def test_order_is_marked_paid_when_plan_completes(self, event, order, plan):
+        """A completed plan must leave the order paid, not merely fully covered."""
+        plan.total_installments = 2
+        plan.installments_paid = 1
+        plan.save()
+
+        order.total = Decimal('200.00')
+        order.save()
+        p1 = order.payments.create(
+            state=OrderPayment.PAYMENT_STATE_CONFIRMED, provider='dummy',
+            amount=Decimal('100.00'), payment_date=now(),
+        )
+        ScheduledInstallment.objects.create(
+            plan=plan, installment_number=1, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=30), state=ScheduledInstallment.STATE_PAID,
+            payment=p1,
+        )
+        ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                process_due_installments()
+
+        with scope(organizer=event.organizer):
+            order.refresh_from_db()
+            plan.refresh_from_db()
+            assert plan.status == InstallmentPlan.STATUS_COMPLETED
+            assert order.pending_sum == Decimal('0.00')
+            assert order.status == Order.STATUS_PAID
+
+    def test_order_stays_pending_while_installments_remain(self, event, order, plan):
+        """A mid-plan installment must not mark a partially paid order as paid."""
+        inst = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                process_due_installments()
+
+        with scope(organizer=event.organizer):
+            order.refresh_from_db()
+            inst.refresh_from_db()
+            assert inst.state == ScheduledInstallment.STATE_PAID
+            assert order.status == Order.STATUS_PENDING
+            assert order.pending_sum == Decimal('200.00')
+
+    def test_installment_payment_is_logged_as_confirmed(self, event, order, plan):
+        """Going through confirm() means the payment shows up in the order log."""
+        ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                process_due_installments()
+
+        with scope(organizer=event.organizer):
+            assert order.all_logentries().filter(
+                action_type='pretix.event.order.payment.confirmed'
+            ).exists()
+
     def test_completes_plan_on_final_installment(self, event, order, plan):
         plan.total_installments = 2
         plan.save()
