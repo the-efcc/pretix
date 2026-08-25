@@ -65,13 +65,50 @@ conflict resolutions are remembered and replayed automatically.
 
 ### Merge migrations
 
-We carry our own migrations in apps upstream also migrates (`pretixbase`), so
-when a release adds one, theirs and ours hang off the same parent and the app
+Whenever we carry a migration in an app upstream also migrates (`pretixbase`),
+theirs and ours hang off the same parent when a release adds one, and the app
 is left with two leaf nodes — at which point Django refuses to run *any*
 migration. The sync script resolves this by running `makemigrations --merge`
 and committing the resulting merge migration, which carries no operations and
-only re-joins the branches. Expect one on most syncs; upstream's own history
-has several (`0022_merge`, `0035_merge`, `0174_merge_20201222_1031`).
+only re-joins the branches. Upstream's own history has several (`0022_merge`,
+`0035_merge`, `0174_merge_20201222_1031`).
+
+The merge migration is a workaround, not the plan — see below.
+
+### Our schema lives in the `pretix.efcc` app
+
+`src/pretix/efcc/` is a Django app whose only job is to own our schema. It has
+its own app label (`efcc`) and therefore its own migration graph, which
+upstream never writes to. **New models we add go there, not in `pretixbase`.**
+
+That is what keeps syncs boring: a `pretixbase` migration of ours is a leaf
+that collides with upstream's next one on *every* release, forever. A migration
+in `efcc` never collides with anything.
+
+Two rules follow from this:
+
+* **Never run `makemigrations pretixbase`.** Add the model to
+  `pretix/efcc/models.py` and run
+  `devenv shell -- bash -c 'cd src && python manage.py makemigrations efcc'`.
+* **Never add a field to an upstream model.** A field on `Order`, `Voucher`,
+  `OrderPayment`, … is a `pretixbase` migration no matter which app you put the
+  model code in — Django binds an operation to the app label of the migration
+  that contains it. Model the extension as a table in `efcc` with a
+  `ForeignKey`/`OneToOneField` back to the upstream model instead, and reach it
+  through the reverse accessor (`order.installment_plan`).
+
+`efcc.0001_initial` depends on a `pretixbase` node. Depending *into*
+`pretixbase` is fine — it only orders the two graphs, it does not create a leaf
+there. Point new dependencies at a pristine-upstream migration rather than at
+one of ours.
+
+Editing upstream *code* (a hook in `OrderPayment.confirm()`, an extra import)
+is unavoidable and cheap: git merges it. Only schema is structural, and only
+schema needs this discipline.
+
+One exception is still outstanding: `Voucher.valid_if_pending`
+(`pretixbase/0307`) predates this rule and is still a `pretixbase` leaf, so
+expect one merge migration per sync until it is moved.
 
 ## Development environment
 
@@ -116,11 +153,16 @@ devenv shell -- pretix-test -v -k some_test
 
 ## Migrations
 
+Our models live in the `pretix.efcc` app, and so do their migrations — see
+"Our schema lives in the `pretix.efcc` app" above for why, and for the two
+rules that keep it that way.
+
 When a model changes, **generate migrations with Django** rather than writing
 the migration files by hand:
 
 ```
-devenv shell -- bash -c 'cd src && python manage.py makemigrations'
+devenv shell -- bash -c 'cd src && python manage.py makemigrations efcc'
 ```
 
-Then apply them with `python manage.py migrate`.
+Then apply them with `python manage.py migrate`. Naming the app is deliberate:
+a bare `makemigrations` will happily write into `pretixbase` too.

@@ -84,8 +84,8 @@ from pretix.base.models import (
     ScheduledEventExport, SeatCategoryMapping, generate_secret,
 )
 from pretix.base.models.orders import (
-    CancellationRequest, InstallmentPlan, OrderFee, OrderPayment,
-    OrderPosition, OrderRefund, PrintLog, ScheduledInstallment,
+    CancellationRequest, OrderFee, OrderPayment, OrderPosition, OrderRefund,
+    PrintLog,
 )
 from pretix.base.models.tax import ask_for_vat_id
 from pretix.base.payment import PaymentException
@@ -138,6 +138,7 @@ from pretix.control.permissions import (
 )
 from pretix.control.signals import order_search_forms
 from pretix.control.views import PaginationMixin
+from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 from pretix.helpers import OF_SELF
 from pretix.helpers.compat import CompatDeleteView
 from pretix.helpers.format import SafeFormatter, format_map

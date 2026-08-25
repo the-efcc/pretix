@@ -34,10 +34,9 @@ from django_scopes import scopes_disabled
 
 from pretix.base.email import get_email_context
 from pretix.base.i18n import language
-from pretix.base.models import (
-    InstallmentPlan, Order, OrderFee, OrderPayment, ScheduledInstallment,
-)
+from pretix.base.models import Order, OrderFee, OrderPayment
 from pretix.base.signals import order_canceled, periodic_task
+from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 from pretix.helpers.periodic import minimum_interval
 from pretix.multidomain.urlreverse import eventreverse_absolute
 
@@ -198,7 +197,6 @@ def create_installment_plan(
         fee=fee,
         info=json.dumps(info_data) if info_data else '{}',
         process_initiated=False,
-        installment_plan=plan
     )
 
     ScheduledInstallment.objects.create(
@@ -268,7 +266,6 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
                 amount=installment.amount,
                 payment_date=now(),
                 provider=plan.payment_provider,
-                installment_plan=plan
             )
 
             installment.state = ScheduledInstallment.STATE_PAID

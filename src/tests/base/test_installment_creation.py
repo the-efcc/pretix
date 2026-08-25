@@ -30,9 +30,9 @@ from django_scopes import scope
 from pretix.base.models import (
     CartPosition, Event, Item, Order, OrderPayment, Organizer, Quota,
 )
-from pretix.base.models.orders import InstallmentPlan, ScheduledInstallment
 from pretix.base.services.installments import create_installment_plan
 from pretix.base.services.orders import perform_order
+from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
 
 @pytest.fixture
@@ -124,7 +124,7 @@ class TestCreateInstallmentPlan:
 
             first_payment = order.payments.first()
             assert first_payment.amount == Decimal('100.00')
-            assert first_payment.installment_plan == plan
+            assert first_payment.installment.get().plan == plan
 
     def test_rounding(self, event, order):
         order.total = Decimal('100.00')
@@ -301,5 +301,7 @@ class TestPerformOrderWithInstallments:
             assert order.installment_plan is not None
             assert order.installment_plan.total_installments == 3
             assert order.installment_plan.amount_per_installment == Decimal('20.00')
-            first_installment_payment = order.payments.filter(installment_plan=order.installment_plan).first()
+            first_installment_payment = order.payments.filter(
+                installment__plan=order.installment_plan
+            ).first()
             assert first_installment_payment.amount == Decimal('20.00')

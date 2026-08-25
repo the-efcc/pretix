@@ -68,8 +68,8 @@ from pretix.base.models import (
     TaxRule,
 )
 from pretix.base.models.orders import (
-    CachedCombinedTicket, InstallmentPlan, InvoiceAddress, OrderFee,
-    OrderPayment, OrderRefund, QuestionAnswer, ScheduledInstallment,
+    CachedCombinedTicket, InvoiceAddress, OrderFee, OrderPayment, OrderRefund,
+    QuestionAnswer,
 )
 from pretix.base.models.tax import TaxedPrice
 from pretix.base.payment import PaymentException
@@ -87,6 +87,7 @@ from pretix.base.signals import order_modified, register_ticket_outputs
 from pretix.base.templatetags.money import money_filter
 from pretix.base.views.mixins import OrderQuestionsViewMixin
 from pretix.base.views.tasks import AsyncAction
+from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 from pretix.helpers.http import redirect_to_url
 from pretix.helpers.safedownload import check_token
 from pretix.multidomain.urlreverse import eventreverse, eventreverse_absolute
@@ -1884,7 +1885,6 @@ class OrderInstallmentRecovery(EventViewMixin, OrderDetailMixin, TemplateView):
                 provider=self.installment_plan.payment_provider,
                 amount=self.failed_installment.amount,
                 state=OrderPayment.PAYMENT_STATE_CREATED,
-                installment_plan=self.installment_plan,
             )
 
             self.failed_installment.payment = payment

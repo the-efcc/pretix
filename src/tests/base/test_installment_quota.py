@@ -27,9 +27,9 @@ from django.utils.timezone import now
 from django_scopes import scopes_disabled
 
 from pretix.base.models import (
-    Event, InstallmentPlan, Item, Order, OrderPayment, OrderPosition,
-    Organizer, Quota,
+    Event, Item, Order, OrderPayment, OrderPosition, Organizer, Quota,
 )
+from pretix.efcc.models import InstallmentPlan
 
 
 @pytest.fixture
@@ -99,7 +99,7 @@ class TestInstallmentQuotaLocking:
                 OrderPayment.objects.create(
                     order=order, state=OrderPayment.PAYMENT_STATE_CONFIRMED,
                     amount=Decimal('100.00'), payment_date=now(),
-                    provider='dummy', installment_plan=plan,
+                    provider='dummy',
                 )
 
             plan.installments_paid = 3

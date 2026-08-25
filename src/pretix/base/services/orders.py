@@ -73,8 +73,8 @@ from pretix.base.models import (
 )
 from pretix.base.models.event import SubEvent
 from pretix.base.models.orders import (
-    BlockedTicketSecret, InstallmentPlan, InvoiceAddress, OrderFee,
-    OrderRefund, generate_secret,
+    BlockedTicketSecret, InvoiceAddress, OrderFee, OrderRefund,
+    generate_secret,
 )
 from pretix.base.models.organizer import SalesChannel, TeamAPIToken
 from pretix.base.models.tax import TAXED_ZERO, TaxedPrice, TaxRule
@@ -111,6 +111,7 @@ from pretix.base.signals import (
 )
 from pretix.base.timemachine import time_machine_now, time_machine_now_assigned
 from pretix.celery_app import app
+from pretix.efcc.models import InstallmentPlan
 from pretix.helpers import OF_SELF
 from pretix.helpers.models import modelcopy
 from pretix.helpers.periodic import minimum_interval

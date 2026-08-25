@@ -29,7 +29,7 @@ from django_scopes import scopes_disabled
 from tests.testdummy.payment import DummyPaymentProvider
 
 from pretix.base.models import Event, Order, OrderPayment, Organizer
-from pretix.base.models.orders import InstallmentPlan, ScheduledInstallment
+from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
 
 @pytest.fixture

@@ -27,7 +27,7 @@ from django.utils.timezone import now
 from django_scopes import scope
 
 from pretix.base.models import Event, Item, Order, OrderPosition, Organizer
-from pretix.base.models.orders import InstallmentPlan, ScheduledInstallment
+from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
 
 @pytest.fixture

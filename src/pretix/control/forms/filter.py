@@ -57,10 +57,10 @@ from pretix.base.forms.widgets import (
 )
 from pretix.base.models import (
     Checkin, CheckinList, Device, Event, EventMetaProperty, EventMetaValue,
-    Gate, InstallmentPlan, Invoice, InvoiceAddress, Item, Order, OrderPayment,
-    OrderPosition, OrderRefund, Organizer, OutgoingMail, Question,
-    QuestionAnswer, Quota, SalesChannel, SubEvent, SubEventMetaValue, Team,
-    TeamAPIToken, TeamInvite, User, Voucher,
+    Gate, Invoice, InvoiceAddress, Item, Order, OrderPayment, OrderPosition,
+    OrderRefund, Organizer, OutgoingMail, Question, QuestionAnswer, Quota,
+    SalesChannel, SubEvent, SubEventMetaValue, Team, TeamAPIToken, TeamInvite,
+    User, Voucher,
 )
 from pretix.base.signals import register_payment_providers
 from pretix.base.timeframes import (
@@ -70,6 +70,7 @@ from pretix.base.timeframes import (
 from pretix.control.forms import SplitDateTimeField
 from pretix.control.forms.widgets import Select2, Select2ItemVarQuota
 from pretix.control.signals import order_search_filter_q
+from pretix.efcc.models import InstallmentPlan
 from pretix.helpers.countries import CachedCountries
 from pretix.helpers.database import (
     get_deterministic_ordering, rolledback_transaction,

@@ -76,7 +76,7 @@ from pretix.presale.views import get_cart
 from pretix.presale.views.cart import cart_session, get_or_create_cart_id
 
 if TYPE_CHECKING:
-    from pretix.base.models.orders import InstallmentPlan, ScheduledInstallment
+    from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
 logger = logging.getLogger(__name__)
 
@@ -529,7 +529,6 @@ class BasePaymentProvider:
                  required=False,
              )),
         ])
-
         d['_restricted_countries']._as_type = list
         d['_restrict_to_sales_channels']._as_type = list
         return d
@@ -841,7 +840,7 @@ class BasePaymentProvider:
                 - ``first_payment``: Amount to charge now (first installment + fees)
 
                 If not using installments, this is ``None``.
-       """
+        """
         form = self.payment_form(request)
         if form.is_valid():
             for k, v in form.cleaned_data.items():
