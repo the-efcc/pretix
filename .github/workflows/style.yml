@@ -2,12 +2,12 @@ name: Code Style
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, efcc ]
     paths-ignore:
       - 'src/pretix/locale/**'
       - 'src/pretix/static/**'
   pull_request:
-    branches: [ master ]
+    branches: [ master, efcc ]
     paths-ignore:
       - 'src/pretix/locale/**'
       - 'src/pretix/static/**'
