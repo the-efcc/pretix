@@ -61,6 +61,12 @@ class BankTransfer(BasePaymentProvider):
     verbose_name = _('Bank transfer')
     abort_pending_allowed = True
 
+    @property
+    def push_installments_supported(self) -> bool:
+        # We cannot charge anyone, but we can hand out payment instructions for every
+        # installment and wait for the transfer to show up in the bank statement.
+        return True
+
     @staticmethod
     def form_fields():
         return OrderedDict([
@@ -289,8 +295,20 @@ class BankTransfer(BasePaymentProvider):
     def checkout_confirm_render(self, request, order=None):
         return self.payment_form_render(request, order=order)
 
+    def _installment_for_payment(self, payment):
+        """The scheduled installment this payment settles, if the order is paid in installments."""
+        if payment is None or payment.pk is None:
+            return None
+        return payment.installment.select_related('plan').first()
+
     def order_pending_mail_render(self, order, payment) -> str:
-        t = gettext("Please transfer the full amount to the following bank account:")
+        installment = self._installment_for_payment(payment)
+        if installment is not None:
+            t = gettext(
+                "Please transfer installment {number} of {total} to the following bank account:"
+            ).format(number=installment.installment_number, total=installment.plan.total_installments)
+        else:
+            t = gettext("Please transfer the full amount to the following bank account:")
         t += "\n\n"
 
         md_nl2br = "  \n"
@@ -334,6 +352,7 @@ class BankTransfer(BasePaymentProvider):
             'pending_description': self.settings.get('pending_description', as_type=LazyI18nString),
             'details': self.settings.get('bank_details', as_type=LazyI18nString),
             'has_invoices': payment.order.invoices.exists(),
+            'installment': self._installment_for_payment(payment),
         }
         return template.render(ctx, request=request)
 

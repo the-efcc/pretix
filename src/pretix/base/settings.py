@@ -2702,6 +2702,8 @@ Your {event} team"""))  # noqa: W291
 this is a reminder for your upcoming installment payment for {event}.
 Your payment of {amount} is due on {date}.
 
+{payment_info}
+
 You can view the details and status of your installment plan at
 {url}
 
@@ -2712,14 +2714,35 @@ Your {event} team"""))  # noqa: W291
         'type': LazyI18nString,
         'default': LazyI18nString.from_gettext(gettext_noop("Payment reminder: {code}")),
     },
+    'mail_text_installment_due': {
+        'type': LazyI18nString,
+        'default': LazyI18nString.from_gettext(gettext_noop("""Hello,
+
+installment {installment_number} of {total_installments} for your order for {event} is now
+due. We have not received your payment of {amount} yet.
+
+Please make sure it reaches us by {expire_date}, otherwise your order will be cancelled.
+
+{payment_info}
+
+You can view the details and status of your installment plan at
+{url}
+
+Best regards,  
+Your {event} team"""))  # noqa: W291
+    },
+    'mail_subject_installment_due': {
+        'type': LazyI18nString,
+        'default': LazyI18nString.from_gettext(gettext_noop("Installment payment due: {code}")),
+    },
     'mail_text_installment_grace_warning': {
         'type': LazyI18nString,
         'default': LazyI18nString.from_gettext(gettext_noop("""Hello,
 
-this is a final warning regarding your failed installment payment for {event}.
+this is a final warning regarding your outstanding installment payment for {event}.
 If we do not receive payment by {expire_date}, your order will be cancelled.
 
-You can resolve this immediately at:
+You can view the status of your order at:
 {url}
 
 Best regards,  

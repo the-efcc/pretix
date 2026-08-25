@@ -89,6 +89,7 @@ from pretix.base.secrets import assign_ticket_secret
 from pretix.base.services import tickets
 from pretix.base.services.installments import (
     cancel_installment_plan, process_single_installment,
+    request_push_installment,
 )
 from pretix.base.services.invoices import (
     generate_cancellation, generate_invoice, invoice_pdf, invoice_qualified,
@@ -1085,9 +1086,13 @@ class EventOrderViewSet(OrderViewSetMixin, viewsets.ModelViewSet):
 
             data = {
                 'status': plan.status,
+                'mode': plan.mode,
                 'total_installments': plan.total_installments,
                 'installments_paid': plan.installments_paid,
                 'amount_per_installment': str(plan.amount_per_installment),
+                'total_amount': str(plan.scheduled_total),
+                'paid_amount': str(plan.paid_amount),
+                'remaining_amount': str(plan.remaining_amount),
                 'payment_provider': plan.payment_provider,
                 'next_payment_date': next_installment.due_date if next_installment else None,
                 'grace_period_end': plan.grace_period_end,
@@ -1150,6 +1155,12 @@ class EventOrderViewSet(OrderViewSetMixin, viewsets.ModelViewSet):
         except InstallmentPlan.DoesNotExist:
             raise NotFound('This order does not have an installment plan.')
 
+        if plan.is_push:
+            return Response(
+                {'error': 'This installment plan is paid by the customer, there is nothing to retry.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         failed_installment = plan.installments.filter(
             state=ScheduledInstallment.STATE_FAILED
         ).order_by('installment_number').first()
@@ -1171,6 +1182,50 @@ class EventOrderViewSet(OrderViewSetMixin, viewsets.ModelViewSet):
                 {'error': 'Installment payment retry failed.'},
                 status=status.HTTP_400_BAD_REQUEST
             )
+
+    @action(detail=True, methods=['POST'], url_path='installment-plan/remind', url_name='installment_plan_remind')
+    def installment_plan_remind(self, request, **kwargs):
+        """
+        Send the payment instructions for a due installment to the customer again.
+        Only applies to plans the customer pays themselves. Returns 400 if nothing is due.
+        """
+        order = self.get_object()
+
+        try:
+            plan = order.installment_plan
+        except InstallmentPlan.DoesNotExist:
+            raise NotFound('This order does not have an installment plan.')
+
+        if not plan.is_push:
+            return Response(
+                {'error': 'This installment plan is charged automatically.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        installment = plan.installments.filter(
+            state=ScheduledInstallment.STATE_PENDING,
+            due_date__lte=now(),
+        ).order_by('installment_number').first()
+
+        if not installment:
+            return Response(
+                {'error': 'No installment is currently due.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # The notice is only ever sent once per installment, so clear the marker to send it again.
+        installment.overdue_notice_sent = False
+        installment.save(update_fields=['overdue_notice_sent'])
+
+        if request_push_installment(installment):
+            return Response(
+                {'message': 'The payment request has been sent to the customer.'},
+                status=status.HTTP_200_OK
+            )
+        return Response(
+            {'error': 'The payment request could not be sent.'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
 
 
 with scopes_disabled():

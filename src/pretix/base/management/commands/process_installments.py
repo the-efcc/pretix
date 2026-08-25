@@ -20,18 +20,22 @@
 # <https://www.gnu.org/licenses/>.
 #
 from django.core.management.base import BaseCommand
+from django_scopes import scopes_disabled
 
 from pretix.base.services.installments import (
-    process_due_installments, process_expired_plans,
-    send_grace_period_warnings, send_installment_reminders,
+    process_due_installments, process_due_push_installments,
+    process_expired_plans, send_grace_period_warnings,
+    send_installment_reminders,
 )
 
 
 class Command(BaseCommand):
     help = "Process due installment payments"
 
+    @scopes_disabled()
     def handle(self, *args, **options):
         process_due_installments()
+        process_due_push_installments()
         process_expired_plans()
         send_installment_reminders()
         send_grace_period_warnings()
