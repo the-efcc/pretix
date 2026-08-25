@@ -257,9 +257,21 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
             installment.save(update_fields=['state', 'failure_reason', 'processed_at'])
             return False
 
+        # Build the payment up front so the provider can record what it needs to act
+        # on the charge later — a transaction ID to refund against, above all. It is
+        # also what links the charge to the installment for OrderPayment.confirm().
+        payment = OrderPayment.objects.create(
+            order=order,
+            state=OrderPayment.PAYMENT_STATE_CREATED,
+            amount=installment.amount,
+            provider=plan.payment_provider,
+        )
+        installment.payment = payment
+        installment.save(update_fields=['payment'])
+
         success = False
         try:
-            success = provider.execute_installment(plan, installment)
+            success = provider.execute_installment(plan, installment, payment)
         except Exception:
             logger.exception(
                 "Failed to execute installment %s for order %s",
@@ -267,18 +279,6 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
             )
 
         if success:
-            payment = OrderPayment.objects.create(
-                order=order,
-                state=OrderPayment.PAYMENT_STATE_CREATED,
-                amount=installment.amount,
-                provider=plan.payment_provider,
-            )
-
-            # Link the payment before confirming: OrderPayment.confirm() settles the
-            # scheduled installment and advances the plan through this relation.
-            installment.payment = payment
-            installment.save(update_fields=['payment'])
-
             try:
                 payment.confirm(send_mail=send_mail)
             except Quota.QuotaExceededException:
@@ -305,6 +305,12 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
                 plan.save(update_fields=['payment_token'])
 
         else:
+            # Keep the failed charge on the order, carrying whatever the provider
+            # recorded about the decline. send_mail is off because we send our own
+            # installment-specific notice below, with the recovery link.
+            payment.fail(info=payment.info_data or None, send_mail=False,
+                         log_data={'installment': installment.pk})
+
             installment.state = ScheduledInstallment.STATE_FAILED
             installment.save(update_fields=['state'])
 
