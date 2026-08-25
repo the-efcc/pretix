@@ -75,7 +75,9 @@ def token_client(client, env):
             'event:cancel': True,
         },
     )
-    t.members.create(email='admin@localhost')
+    # A team API token authenticates on its own; the team needs no member. Creating one here
+    # meant every run inserted a user with the same hardcoded address, which collides as soon
+    # as two of these fixtures meet the same database.
     t.limit_events.add(event)
     token = t.tokens.create(name='Test token')
     client.credentials(HTTP_AUTHORIZATION='Token ' + token.token)
