@@ -2,7 +2,7 @@ name: JS Code Style
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, efcc ]
     paths:
       - 'src/pretix/static/pretixpresale/widget/**'
       - 'src/pretix/static/pretixcontrol/js/ui/checkinrules/**'
@@ -11,7 +11,7 @@ on:
       - 'package.json'
       - 'package-lock.json'
   pull_request:
-    branches: [ master ]
+    branches: [ master, efcc ]
     paths:
       - 'src/pretix/static/pretixpresale/widget/**'
       - 'src/pretix/static/pretixcontrol/js/ui/checkinrules/**'

@@ -2,12 +2,12 @@ name: Build
 
 on:
   push:
-    branches: [ master ]
+    branches: [ master, efcc ]
     paths-ignore:
       - 'doc/**'
       - 'src/pretix/locale/**'
   pull_request:
-    branches: [ master ]
+    branches: [ master, efcc ]
     paths-ignore:
       - 'doc/**'
       - 'src/pretix/locale/**'
