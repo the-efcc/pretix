@@ -264,6 +264,16 @@ class EventsTest(SoupTest):
         assert doc.select("[name=date_to_1]")[0]['value'] == "17:00:00"
         assert doc.select("[name=settings-max_items_per_order]")[0]['value'] == "12"
 
+    def test_settings_location_link(self):
+        doc = self.get_doc('/control/event/%s/%s/settings/' % (self.orga1.slug, self.event1.slug))
+        doc.select("[name=settings-location_link]")[0]['value'] = "https://example.org/map"
+
+        doc = self.post_doc('/control/event/%s/%s/settings/' % (self.orga1.slug, self.event1.slug),
+                            extract_form_fields(doc.select('.container-fluid form')[0]))
+        assert len(doc.select(".alert-success")) > 0
+        self.event1.settings.flush()
+        assert self.event1.settings.location_link == "https://example.org/map"
+
     def test_unchanged_settings_do_not_create_logentry(self):
         doc = self.get_doc('/control/event/%s/%s/settings/' % (self.orga1.slug, self.event1.slug))
         self.post_doc('/control/event/%s/%s/settings/' % (self.orga1.slug, self.event1.slug),
