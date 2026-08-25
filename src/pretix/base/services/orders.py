@@ -896,7 +896,7 @@ def _check_positions(event: Event, now_dt: datetime, time_machine_now_dt: dateti
     for i, cp in enumerate(sorted_positions):
         if cp.listed_price is None:
             # migration from pre-discount cart positions
-            cp.update_listed_price_and_voucher(max_discount=None)
+            cp.update_listed_price_and_voucher(max_discount=None, invoice_address=address)
             cp.migrate_free_price_if_necessary()
 
         # deal with max discount
@@ -908,9 +908,9 @@ def _check_positions(event: Event, now_dt: datetime, time_machine_now_dt: dateti
 
         if cp.expires < now_dt or cp.listed_price is None:
             # Guarantee on listed price is expired
-            cp.update_listed_price_and_voucher(max_discount=max_discount)
+            cp.update_listed_price_and_voucher(max_discount=max_discount, invoice_address=address)
         elif cp.voucher:
-            cp.update_listed_price_and_voucher(max_discount=max_discount, voucher_only=True)
+            cp.update_listed_price_and_voucher(max_discount=max_discount, voucher_only=True, invoice_address=address)
 
         if max_discount is not None:
             v_budget[cp.voucher] = v_budget[cp.voucher] - (cp.listed_price - cp.price_after_voucher)
