@@ -691,7 +691,7 @@ class Order(LockModel, LoggedModel):
 
     @cached_property
     def user_cancel_deadline(self):
-        if self.status == Order.STATUS_PAID and self.total != Decimal('0.00'):
+        if self.user_cancel_paid_terms:
             until = self.event.settings.get('cancel_allow_user_paid_until', as_type=RelativeDateWrapper)
         else:
             until = self.event.settings.get('cancel_allow_user_until', as_type=RelativeDateWrapper)
@@ -706,9 +706,44 @@ class Order(LockModel, LoggedModel):
                 return until.datetime(self.event)
 
     @cached_property
+    def user_cancel_refunds_payments(self) -> bool:
+        """
+        Returns whether a cancellation by the user needs to pay back money that has already
+        been received, even though the order never reached ``paid``.
+
+        This is the case for an order paid in installments once at least one installment has
+        settled: the customer paid towards an order they are now canceling, so what was
+        collected is refunded to them (minus the cancellation fee) instead of kept. No such
+        promise is made for partially paid orders in general -- the money may have arrived by
+        bank transfer and be the organizer's to sort out -- so those stay excluded from
+        self-service cancellation.
+        """
+        from pretix.efcc.models import InstallmentPlan
+
+        if self.status != Order.STATUS_PENDING or self.payment_refund_sum <= Decimal('0.00'):
+            return False
+        try:
+            self.installment_plan
+        except InstallmentPlan.DoesNotExist:
+            return False
+        return True
+
+    @property
+    def user_cancel_paid_terms(self) -> bool:
+        """
+        Returns whether a cancellation by the user follows the organizer's rules for paid
+        orders: the ``cancel_allow_user_paid_*`` settings, and money going back to the
+        customer. True for paid orders that cost something, and for orders paid in
+        installments that have collected money so far.
+        """
+        return (
+            self.status == Order.STATUS_PAID or self.user_cancel_refunds_payments
+        ) and self.total != Decimal('0.00')
+
+    @cached_property
     def user_cancel_fee(self):
         fee = Decimal('0.00')
-        if self.status == Order.STATUS_PAID:
+        if self.status == Order.STATUS_PAID or self.user_cancel_refunds_payments:
             if self.event.settings.cancel_allow_user_paid_keep_fees:
                 fee += self.fees.filter(
                     fee_type__in=(OrderFee.FEE_TYPE_PAYMENT, OrderFee.FEE_TYPE_SHIPPING, OrderFee.FEE_TYPE_SERVICE,
@@ -732,7 +767,12 @@ class Order(LockModel, LoggedModel):
                 fee += self.event.settings.cancel_allow_user_unpaid_keep_percentage / Decimal('100.0') * (self.total - fee)
             if self.event.settings.cancel_allow_user_unpaid_keep:
                 fee += self.event.settings.cancel_allow_user_unpaid_keep
-        return round_decimal(min(fee, self.total), self.event.currency)
+        fee = min(fee, self.total)
+        if self.user_cancel_refunds_payments:
+            # The fee is taken out of what was collected so far, so canceling never leaves the
+            # customer owing money on an order that no longer exists.
+            fee = min(fee, self.payment_refund_sum)
+        return round_decimal(fee, self.event.currency)
 
     @property
     @scopes_disabled()
@@ -805,6 +845,8 @@ class Order(LockModel, LoggedModel):
         if self.status == Order.STATUS_PAID:
             if self.total == Decimal('0.00'):
                 return self.event.settings.cancel_allow_user
+            return self.event.settings.cancel_allow_user_paid
+        elif self.user_cancel_refunds_payments:
             return self.event.settings.cancel_allow_user_paid
         elif self.payment_refund_sum > Decimal('0.00'):
             return False

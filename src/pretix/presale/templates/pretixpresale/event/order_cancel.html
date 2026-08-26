@@ -21,7 +21,7 @@
             action="{% eventurl request.event "presale:event.order.cancel.do" secret=order.secret order=order.code %}"
             data-asynctask
             class="">
-        {% if request.event.settings.cancel_allow_user_paid_require_approval and order.status == "p" and order.total != 0 %}
+        {% if request.event.settings.cancel_allow_user_paid_require_approval and order.user_cancel_paid_terms %}
             {% if request.event.settings.cancel_allow_user_paid_require_approval_fee_unknown %}
                 <p>
                     {% blocktrans trimmed %}
@@ -50,13 +50,22 @@
             </p>
         {% endif %}
 
-        {% if order.status == "n" and order.total != 0 and order.user_cancel_fee %}
+        {% if order.user_cancel_refunds_payments %}
+            <p>
+                {% blocktrans trimmed with paid=payment_refund_sum|money:request.event.currency %}
+                    You have paid {{ paid }} towards this order in installments so far. The
+                    installments that are still scheduled will not be charged.
+                {% endblocktrans %}
+            </p>
+        {% endif %}
+
+        {% if not order.user_cancel_paid_terms and order.total != 0 and order.user_cancel_fee %}
             {% blocktrans trimmed with fee=order.user_cancel_fee|money:request.event.currency %}
                 You can cancel this order. As per our cancellation policy, you will still be required
                 to pay a cancellation fee of <strong>{{ fee }}</strong>.
             {% endblocktrans %}
         {% elif not request.event.settings.cancel_allow_user_paid_require_approval or not request.event.settings.cancel_allow_user_paid_require_approval_fee_unknown %}
-        {% if request.event.settings.cancel_allow_user_paid_adjust_fees and order.status == "p" and order.total != 0 %}
+        {% if request.event.settings.cancel_allow_user_paid_adjust_fees and order.user_cancel_paid_terms %}
             <p>
                 {% if cancel_fee %}
                     {% blocktrans trimmed with fee=order.user_cancel_fee|money:request.event.currency %}

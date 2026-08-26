@@ -1095,16 +1095,21 @@ class OrderCancelDo(EventViewMixin, OrderDetailMixin, AsyncAction, View):
             not self.request.event.settings.cancel_allow_user_paid_require_approval
             and self.request.event.settings.cancel_allow_user_paid_refund_as_giftcard != "manually"
         )
-        if self.order.status == Order.STATUS_PAID and self.order.total != Decimal('0.00'):
+        refunds_payments = self.order.user_cancel_refunds_payments
+        if self.order.user_cancel_paid_terms:
+            # An order paid in installments is still pending, but money has been collected for
+            # it, so it is canceled under the same rules as a paid one: the organizer's paid
+            # cancellation policy, and a refund of what was received.
             require_approval = self.request.event.settings.cancel_allow_user_paid_require_approval
             fee = self.order.user_cancel_fee
             auto_refund = self.request.event.settings.cancel_allow_user_paid_refund_as_giftcard != "manually"
         if self.order.total == Decimal('0.00'):
             fee = Decimal('0.00')
-        elif self.order.status == Order.STATUS_PENDING:
+        elif self.order.status == Order.STATUS_PENDING and not refunds_payments:
             auto_refund = False
             fee = self.order.user_cancel_fee
-        elif 'cancel_fee' in request.POST and self.order.status == Order.STATUS_PAID and self.request.event.settings.cancel_allow_user_paid_adjust_fees:
+        elif 'cancel_fee' in request.POST and self.order.user_cancel_paid_terms \
+                and self.request.event.settings.cancel_allow_user_paid_adjust_fees:
             fee = fee or Decimal('0.00')
             fee_in = re.sub('[^0-9.,]', '', request.POST.get('cancel_fee'))
             try:

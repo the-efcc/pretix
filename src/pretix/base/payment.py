@@ -1190,6 +1190,10 @@ class BasePaymentProvider:
         payment provider to ensure it cannot be used for future charges. This is called when
         an installment plan is cancelled or completed.
 
+        Only future charges are meant to become impossible: the installments already settled
+        must stay refundable through :py:meth:`execute_refund` afterwards, as that is how a
+        customer canceling a partially paid order is paid back.
+
         :param plan: The InstallmentPlan containing the token to revoke
         :raises NotImplementedError: If the provider does not support installments
         """

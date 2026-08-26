@@ -459,7 +459,7 @@
                 {% endif %}
                 {% if user_cancel_allowed %}
                     <li class="list-group-item">
-                        {% if order.status == "p" and order.total != 0 %}
+                        {% if order.user_cancel_paid_terms %}
                             {% if request.event.settings.cancel_terms_paid %}
                                 {{ request.event.settings.cancel_terms_paid|rich_text }}
                             {% elif request.event.settings.cancel_allow_user_paid_require_approval and request.event.settings.cancel_allow_user_paid_require_approval_fee_unknown %}
