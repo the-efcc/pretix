@@ -33,7 +33,7 @@ from pretix.base.models import (
     Event, Item, Order, OrderPayment, OrderPosition, Organizer,
 )
 from pretix.base.services.installments import (
-    process_due_installments, process_expired_plans,
+    create_installment_plan, process_due_installments, process_expired_plans,
     send_grace_period_warnings, send_installment_reminders,
 )
 from pretix.base.services.orders import cancel_order
@@ -342,6 +342,93 @@ class TestProcessDueInstallments:
         assert inst.state == ScheduledInstallment.STATE_PAID
         assert inst.payment is not None
         assert plan.installments_paid == 2
+
+
+@pytest.mark.django_db
+class TestProcessDueInstallmentsAfterCheckout:
+    """
+    The processor run against a plan that ``create_installment_plan`` actually built,
+    rather than one assembled by hand. Installment 1 is the interesting one: it is due
+    immediately and already carries the payment the customer makes at checkout, so the
+    processor has to leave it alone until that payment is out of the picture.
+    """
+
+    def _real_plan(self, event, order, provider):
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                return create_installment_plan(order, 'dummy', installments_count=3)
+
+    def test_does_not_charge_while_the_checkout_payment_is_in_flight(self, event, order):
+        provider = _mock_provider()
+        plan = self._real_plan(event, order, provider)
+
+        # The provider tokenized the card on the way out to the payment page; the
+        # confirmation is still to come back over a webhook.
+        plan.payment_token = {'token': 'tok_123'}
+        plan.save(update_fields=['payment_token'])
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                process_due_installments()
+
+        with scope(organizer=event.organizer):
+            first = plan.installments.get(installment_number=1)
+        assert provider.execute_installment.call_count == 0
+        assert first.state == ScheduledInstallment.STATE_PENDING
+        assert order.payments.count() == 1
+
+    def test_confirming_the_checkout_payment_settles_the_first_installment(self, event, order):
+        provider = _mock_provider()
+        plan = self._real_plan(event, order, provider)
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                order.payments.get().confirm(send_mail=False)
+                process_due_installments()
+
+        with scope(organizer=event.organizer):
+            first = plan.installments.get(installment_number=1)
+            plan.refresh_from_db()
+        assert first.state == ScheduledInstallment.STATE_PAID
+        assert plan.installments_paid == 1
+        assert provider.execute_installment.call_count == 0
+        assert order.payments.count() == 1
+
+    def test_charges_the_first_installment_once_its_payment_has_failed(self, event, order):
+        provider = _mock_provider()
+        plan = self._real_plan(event, order, provider)
+        plan.payment_token = {'token': 'tok_123'}
+        plan.save(update_fields=['payment_token'])
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                order.payments.get().fail(send_mail=False)
+                process_due_installments()
+
+        with scope(organizer=event.organizer):
+            first = plan.installments.get(installment_number=1)
+        assert provider.execute_installment.call_count == 1
+        assert first.state == ScheduledInstallment.STATE_PAID
+
+    def test_later_installments_are_still_charged_on_their_due_date(self, event, order):
+        provider = _mock_provider()
+        plan = self._real_plan(event, order, provider)
+        plan.payment_token = {'token': 'tok_123'}
+        plan.save(update_fields=['payment_token'])
+
+        with scope(organizer=event.organizer):
+            second = plan.installments.get(installment_number=2)
+            second.due_date = now() - timedelta(days=1)
+            second.save(update_fields=['due_date'])
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                process_due_installments()
+
+        with scope(organizer=event.organizer):
+            second.refresh_from_db()
+        assert second.state == ScheduledInstallment.STATE_PAID
+        assert provider.execute_installment.call_count == 1
 
 
 @pytest.mark.django_db
