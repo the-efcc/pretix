@@ -58,7 +58,7 @@ class InstallmentPlan(models.Model):
         (STATUS_ACTIVE, pgettext_lazy('installment_status', 'active')),
         (STATUS_COMPLETED, pgettext_lazy('installment_status', 'completed')),
         (STATUS_FAILED, pgettext_lazy('installment_status', 'failed')),
-        (STATUS_CANCELLED, pgettext_lazy('installment_status', 'cancelled')),
+        (STATUS_CANCELLED, pgettext_lazy('installment_status', 'canceled')),
     )
 
     order = models.OneToOneField(
@@ -183,7 +183,7 @@ class ScheduledInstallment(models.Model):
         (STATE_PROCESSING, pgettext_lazy('installment_state', 'processing')),
         (STATE_PAID, pgettext_lazy('installment_state', 'paid')),
         (STATE_FAILED, pgettext_lazy('installment_state', 'failed')),
-        (STATE_CANCELLED, pgettext_lazy('installment_state', 'cancelled')),
+        (STATE_CANCELLED, pgettext_lazy('installment_state', 'canceled')),
     )
 
     plan = models.ForeignKey(

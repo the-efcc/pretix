@@ -150,6 +150,8 @@ Enterprise-Plugin
 Enterprise-Plugins
 eps
 EPS
+Erinnerungs-E-Mail
+Erinnerungs-E-Mails
 Erstattungsbetrag
 Erstattungsbetrags
 Erstattungsliste
@@ -193,6 +195,7 @@ Grants
 Gruppierungsspalte
 Gruppierungswert
 Guide
+Gutschein-Einlöseseite
 Gutscheineinlöser
 Händler-ID
 Händler-PayPal-Konto
@@ -241,6 +244,7 @@ Logindaten
 Loginvorgangs
 Macau
 MapQuest-API-Key
+Maps
 max
 Medien-ID
 Melilla
@@ -264,6 +268,8 @@ Multibanco
 Multiple-Choice-Fragen
 MwSt
 MyBank
+Nachfrist
+Nachfrist-Warnung
 name
 NFC
 NFC-basierte
@@ -368,6 +374,9 @@ Query-Parameter
 rabattiert
 Rabattiert
 Rabattierung
+Ratennummer
+Ratenzahlungsplan
+Ratenzahlungsplans
 Rechnungs-E-Mail
 Rechungsdatei
 Rechungsperiode
@@ -477,6 +486,7 @@ Ticket-QR-Code
 TIN
 TODO
 To-Do-Liste
+Tokenisierte
 TOTP
 Trace-Nummer
 Tracking

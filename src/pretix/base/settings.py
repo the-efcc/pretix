@@ -1163,7 +1163,7 @@ DEFAULTS = {
         'write_permission': 'event.settings.payment:write',
         'form_kwargs': dict(
             label=_('Grace period'),
-            help_text=_('Days after a failed installment before the order is cancelled'),
+            help_text=_('Days after a failed installment before the order is canceled'),
             min_value=1,
             max_value=14,
             validators=[MinValueValidator(1), MaxValueValidator(14)],
@@ -2717,7 +2717,7 @@ Your {event} team"""))  # noqa: W291
         'default': LazyI18nString.from_gettext(gettext_noop("""Hello,
 
 this is a final warning regarding your failed installment payment for {event}.
-If we do not receive payment by {expire_date}, your order will be cancelled.
+If we do not receive payment by {expire_date}, your order will be canceled.
 
 You can resolve this immediately at:
 {url}
@@ -2733,7 +2733,7 @@ Your {event} team"""))  # noqa: W291
         'type': LazyI18nString,
         'default': LazyI18nString.from_gettext(gettext_noop("""Hello,
 
-your order for {event} has been cancelled because we did not receive payment
+your order for {event} has been canceled because we did not receive payment
 for your overdue installment within the grace period.
 
 Any installments already paid will be refunded according to our terms.
@@ -2743,7 +2743,7 @@ Your {event} team"""))  # noqa: W291
     },
     'mail_subject_installment_cancelled': {
         'type': LazyI18nString,
-        'default': LazyI18nString.from_gettext(gettext_noop("Order cancelled: {code}")),
+        'default': LazyI18nString.from_gettext(gettext_noop("Order canceled: {code}")),
     },
     'mail_attachment_new_order': {
         'default': None,
