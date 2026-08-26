@@ -221,6 +221,48 @@ def create_installment_plan(
     return plan
 
 
+#: How long an installment may sit in ``processing`` before another run is allowed to
+#: take it over. Long enough that no provider call is still plausibly running, short
+#: enough that a worker killed mid-charge does not wedge the installment for good.
+PROCESSING_LEASE = timedelta(hours=1)
+
+
+def claim_installment(installment: ScheduledInstallment) -> bool:
+    """
+    Take exclusive ownership of an installment before charging it.
+
+    Nothing serializes the callers of :py:func:`process_single_installment`. The periodic
+    task, the ``process_installments`` command, the control-panel retry button and the API
+    retry endpoint can all reach the same installment at the same time, and
+    ``minimum_interval`` is explicit that its locking "should not be relied upon". Two
+    callers getting through at once means charging the customer twice.
+
+    So the state is the lock: a single conditional UPDATE moves the installment into
+    ``processing``, and the database guarantees exactly one caller sees it succeed. An
+    installment left in ``processing`` past :py:data:`PROCESSING_LEASE` is taken to belong
+    to a run that died, and can be claimed again -- otherwise a killed worker would strand
+    it in a state no retry path can reach.
+
+    :return: True if this caller now owns the installment
+    """
+    with scopes_disabled():
+        claimed = ScheduledInstallment.objects.filter(
+            models.Q(state__in=(
+                ScheduledInstallment.STATE_PENDING,
+                ScheduledInstallment.STATE_FAILED,
+            )) | models.Q(
+                state=ScheduledInstallment.STATE_PROCESSING,
+                processed_at__lt=now() - PROCESSING_LEASE,
+            ),
+            pk=installment.pk,
+        ).update(state=ScheduledInstallment.STATE_PROCESSING, processed_at=now())
+
+    if not claimed:
+        return False
+    installment.state = ScheduledInstallment.STATE_PROCESSING
+    return True
+
+
 @transaction.atomic
 def process_single_installment(installment: ScheduledInstallment, send_mail: bool = False) -> bool:
     """
@@ -231,12 +273,22 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
     payments cover its total. Confirming is also what settles the scheduled
     installment and advances the plan.
 
+    The installment is claimed first (see :py:func:`claim_installment`); if another run
+    already owns it this returns ``False`` without charging anything.
+
     :param installment: The ScheduledInstallment to process
     :param send_mail: Whether to notify the customer — the failure notice on a
                       declined charge, the paid confirmation when the order is
                       settled (default False)
     :return: True if the charge succeeded, False otherwise
     """
+    if not claim_installment(installment):
+        logger.info(
+            "Installment %s is already being processed elsewhere, skipping.",
+            installment.pk,
+        )
+        return False
+
     with scopes_disabled():
         plan = installment.plan
         order = plan.order
@@ -244,6 +296,8 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
 
         provider = event.get_payment_providers().get(plan.payment_provider)
         if not provider:
+            installment.state = ScheduledInstallment.STATE_PENDING
+            installment.save(update_fields=['state'])
             return False
 
         if not plan.payment_token or plan.payment_token == {}:
