@@ -131,6 +131,18 @@ class InstallmentPlan(models.Model):
                 setattr(self, field.attname, getattr(plan, field.attname))
         return plan.status == InstallmentPlan.STATUS_COMPLETED
 
+    @property
+    def first_payment(self):
+        """
+        The payment for the first installment -- the one the customer makes at checkout.
+
+        Reach for this rather than ``order.payments.first()``: an order can carry payments
+        that have nothing to do with the plan (a gift card covering part of the total, say),
+        and those are created first, so ``order.payments.first()`` returns one of them.
+        """
+        first = self.installments.filter(installment_number=1).first()
+        return first.payment if first else None
+
     def store_payment_token(self, token_data):
         """
         Store the payment token for this installment plan.

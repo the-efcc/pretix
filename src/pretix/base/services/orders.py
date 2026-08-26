@@ -1139,7 +1139,7 @@ def _create_order(event: Event, *, email: str, positions: List[CartPosition], no
                 except ValueError as e:
                     raise OrderError(str(e))
                 else:
-                    payments.append(plan.order.payments.first())
+                    payments.append(plan.first_payment)
             else:
                 raise OrderError(_('Installments are not available for the selected payment method.'))
 
