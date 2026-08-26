@@ -31,7 +31,7 @@ from pretix.base.models import (
     CartPosition, Event, Item, Order, OrderPayment, Organizer, Quota,
 )
 from pretix.base.services.installments import create_installment_plan
-from pretix.base.services.orders import perform_order
+from pretix.base.services.orders import _create_order, perform_order
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
 
@@ -305,3 +305,70 @@ class TestPerformOrderWithInstallments:
                 installment__plan=order.installment_plan
             ).first()
             assert first_installment_payment.amount == Decimal('20.00')
+            assert order.installment_plan.first_payment == first_installment_payment
+
+
+@pytest.mark.django_db
+class TestCreateOrderReturnsThePaymentsItCreated:
+    """
+    ``_create_order`` returns the payments the checkout flow then acts on: it executes
+    them, and gift card payments get executed early as a special case. A payment that
+    appears twice in that list is charged twice, and one that is missing is never
+    charged at all -- so the list has to line up exactly with what was created.
+    """
+
+    def _providers(self):
+        inst = _mock_order_provider()
+        multiuse = MagicMock()
+        multiuse.calculate_fee.return_value = Decimal('0.00')
+        multiuse.payment_form_fields = {}
+        multiuse.is_implicit = lambda x: False
+        return inst, multiuse
+
+    def _place(self, event, cart_position, requests, providers):
+        with patch('pretix.base.models.Event.get_payment_providers', return_value=providers):
+            positions = list(CartPosition.objects.filter(pk=cart_position.pk))
+            return _create_order(
+                event,
+                email='test@example.com',
+                positions=positions,
+                now_dt=now(),
+                payment_requests=requests,
+                locale='en',
+                address=None,
+                meta_info={},
+                sales_channel=event.organizer.sales_channels.get(identifier='web'),
+            )
+
+    def test_installments_alongside_a_multi_use_payment(self, event, cart_position):
+        event.settings.set('installments_enabled', True)
+        inst, multiuse = self._providers()
+        requests = [
+            {'provider': 'multiuse', 'payment_amount': Decimal('0.00'), 'max_value': '40.00',
+             'info_data': {}, 'multi_use_supported': True, 'pprov': multiuse},
+            {'provider': 'dummy', 'payment_amount': Decimal('0.00'), 'info_data': {},
+             'pay_in_installments': True, 'installments_count': 3, 'pprov': inst},
+        ]
+
+        with scope(organizer=event.organizer):
+            order, payments = self._place(event, cart_position, requests,
+                                          {'dummy': inst, 'multiuse': multiuse})
+
+            assert [p.provider for p in payments] == ['multiuse', 'dummy']
+            assert len(payments) == len({p.pk for p in payments})
+            assert {p.pk for p in payments} == set(order.payments.values_list('pk', flat=True))
+            assert payments[1] == order.installment_plan.first_payment
+
+    def test_installments_on_their_own(self, event, cart_position):
+        event.settings.set('installments_enabled', True)
+        inst, _ = self._providers()
+        requests = [
+            {'provider': 'dummy', 'payment_amount': Decimal('0.00'), 'info_data': {},
+             'pay_in_installments': True, 'installments_count': 3, 'pprov': inst},
+        ]
+
+        with scope(organizer=event.organizer):
+            order, payments = self._place(event, cart_position, requests, {'dummy': inst})
+
+            assert [p.provider for p in payments] == ['dummy']
+            assert payments[0] == order.installment_plan.first_payment
