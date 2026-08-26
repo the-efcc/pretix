@@ -1104,7 +1104,7 @@
                                         </tbody>
                                     </table>
                                 </div>
-                                {% if 'can_change_orders' in request.eventpermset and installment_plan.status == 'active' %}
+                                {% if "event.orders:write" in request.eventpermset and installment_plan.status == "active" %}
                                     <div class="panel-footer">
                                         <div class="btn-group" role="group">
                                             <a href="{% url "control:event.order.installment_plan.cancel" event=request.event.slug organizer=request.event.organizer.slug code=order.code %}"
