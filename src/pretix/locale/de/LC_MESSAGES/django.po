@@ -37237,6 +37237,734 @@ msgstr "Schreibzugriff"
 msgid "Kosovo"
 msgstr "Kosovo"
 
+#: pretix/base/models/vouchers.py
+msgid ""
+"If you check this box, orders placed with this voucher will behave like a "
+"paid order for most purposes, even though they are not yet paid. This "
+"means that the customer can already download and use tickets regardless of "
+"your event settings, and the order might be treated as paid by some "
+"plugins. Such orders will also not be marked as \"expired\" automatically "
+"if the payment deadline arrives, since we expect that you want to collect "
+"the amount somehow and not auto-cancel the order."
+msgstr ""
+"Wenn Sie diese Option wählen, werden mit diesem Gutschein aufgegebene "
+"Bestellungen in fast allen Fragen wie bezahlte Bestellungen behandelt, "
+"obwohl sie noch nicht bezahlt wurden. Das bedeutet, dass der Kunde "
+"unabhängig von den Veranstaltungseinstellungen bereits die Tickets "
+"herunterladen kann und die Bestellung von einigen Erweiterungen als "
+"bezahlt behandelt wird. Solche Bestellungen laufen bei Erreichen der "
+"Zahlungsfrist außerdem nicht automatisch ab, da wir davon ausgehen, dass "
+"Sie den Betrag eintreiben möchten und die Bestellung nicht automatisch "
+"storniert werden soll."
+
+#: pretix/base/payment.py
+msgid ""
+"If you check this box, orders using this payment method will behave like a "
+"paid order for most purposes, even though they are not yet paid. This "
+"means that the customer can already download and use tickets regardless of "
+"your event settings, and the order might be treated as paid by some "
+"plugins. Such orders will also not be marked as \"expired\" automatically "
+"if the payment deadline arrives, since we expect that you want to collect "
+"the amount somehow and not auto-cancel the order. This is useful e.g. for "
+"on-site cash payments, where the order should stay valid until the event."
+msgstr ""
+"Wenn Sie diese Option wählen, werden Bestellungen mit dieser "
+"Zahlungsmethode in fast allen Fragen wie bezahlte Bestellungen behandelt, "
+"obwohl sie noch nicht bezahlt wurden. Das bedeutet, dass der Kunde "
+"unabhängig von den Veranstaltungseinstellungen bereits die Tickets "
+"herunterladen kann und die Bestellung von einigen Erweiterungen als "
+"bezahlt behandelt wird. Solche Bestellungen laufen bei Erreichen der "
+"Zahlungsfrist außerdem nicht automatisch ab, da wir davon ausgehen, dass "
+"Sie den Betrag eintreiben möchten und die Bestellung nicht automatisch "
+"storniert werden soll. Das ist zum Beispiel für Barzahlungen vor Ort "
+"nützlich, bei denen die Bestellung bis zur Veranstaltung gültig bleiben "
+"soll."
+
+#: pretix/base/services/orders.py
+msgid "Installments are not available for the selected payment method."
+msgstr "Ratenzahlung ist für die gewählte Zahlungsmethode nicht verfügbar."
+
+#: pretix/base/settings.py
+#, python-brace-format
+msgid ""
+"Hello,\n"
+"\n"
+"unfortunately, your recent installment payment for {event} failed.\n"
+"Please update your payment method or retry the payment by {expire_date}\n"
+"to avoid cancellation of your order.\n"
+"\n"
+"Reason: {failure_reason}\n"
+"\n"
+"You can update your payment method at:\n"
+"{url}\n"
+"\n"
+"Best regards,  \n"
+"Your {event} team"
+msgstr ""
+"Hallo,\n"
+"\n"
+"leider ist Ihre letzte Ratenzahlung für {event} fehlgeschlagen.\n"
+"Bitte aktualisieren Sie Ihre Zahlungsmethode oder wiederholen Sie die "
+"Zahlung bis zum {expire_date},\n"
+"um eine Stornierung Ihrer Bestellung zu vermeiden.\n"
+"\n"
+"Grund: {failure_reason}\n"
+"\n"
+"Sie können Ihre Zahlungsmethode hier aktualisieren:\n"
+"{url}\n"
+"\n"
+"Viele Grüße,  \n"
+"Das {event} Team"
+
+#: pretix/base/settings.py
+#, python-brace-format
+msgid "Payment failed: {code}"
+msgstr "Zahlung fehlgeschlagen: {code}"
+
+#: pretix/base/settings.py
+#, python-brace-format
+msgid ""
+"Hello,\n"
+"\n"
+"this is a reminder for your upcoming installment payment for {event}.\n"
+"Your payment of {amount} is due on {date}.\n"
+"\n"
+"You can view the details and status of your installment plan at\n"
+"{url}\n"
+"\n"
+"Best regards,  \n"
+"Your {event} team"
+msgstr ""
+"Hallo,\n"
+"\n"
+"dies ist eine Erinnerung an Ihre bevorstehende Ratenzahlung für {event}.\n"
+"Ihre Zahlung über {amount} ist am {date} fällig.\n"
+"\n"
+"Die Details und den Status Ihres Ratenzahlungsplans können Sie hier "
+"einsehen:\n"
+"{url}\n"
+"\n"
+"Viele Grüße,  \n"
+"Das {event} Team"
+
+#: pretix/base/settings.py
+#, python-brace-format
+msgid "Payment reminder: {code}"
+msgstr "Zahlungserinnerung: {code}"
+
+#: pretix/base/settings.py
+#, python-brace-format
+msgid ""
+"Hello,\n"
+"\n"
+"this is a final warning regarding your failed installment payment for "
+"{event}.\n"
+"If we do not receive payment by {expire_date}, your order will be "
+"cancelled.\n"
+"\n"
+"You can resolve this immediately at:\n"
+"{url}\n"
+"\n"
+"Best regards,  \n"
+"Your {event} team"
+msgstr ""
+"Hallo,\n"
+"\n"
+"dies ist eine letzte Mahnung zu Ihrer fehlgeschlagenen Ratenzahlung für "
+"{event}.\n"
+"Wenn wir Ihre Zahlung nicht bis zum {expire_date} erhalten, wird Ihre "
+"Bestellung storniert.\n"
+"\n"
+"Sie können das sofort hier erledigen:\n"
+"{url}\n"
+"\n"
+"Viele Grüße,  \n"
+"Das {event} Team"
+
+#: pretix/base/settings.py
+#, python-brace-format
+msgid "Urgent: Payment required for {code}"
+msgstr "Dringend: Zahlung erforderlich für {code}"
+
+#: pretix/base/settings.py
+#, python-brace-format
+msgid ""
+"Hello,\n"
+"\n"
+"your order for {event} has been cancelled because we did not receive "
+"payment\n"
+"for your overdue installment within the grace period.\n"
+"\n"
+"Any installments already paid will be refunded according to our terms.\n"
+"\n"
+"Best regards,  \n"
+"Your {event} team"
+msgstr ""
+"Hallo,\n"
+"\n"
+"Ihre Bestellung für {event} wurde storniert, weil wir die Zahlung\n"
+"für Ihre überfällige Rate nicht innerhalb der Nachfrist erhalten haben.\n"
+"\n"
+"Bereits gezahlte Raten werden gemäß unseren Bedingungen erstattet.\n"
+"\n"
+"Viele Grüße,  \n"
+"Das {event} Team"
+
+#: pretix/base/settings.py
+#, python-brace-format
+msgid "Order cancelled: {code}"
+msgstr "Bestellung storniert: {code}"
+
+#: pretix/base/settings.py
+msgid "Enable installment payments"
+msgstr "Ratenzahlung aktivieren"
+
+#: pretix/base/settings.py
+msgid ""
+"Allow customers to pay in monthly installments. This will only be offered "
+"if you also enable at least one payment provider that supports "
+"installments."
+msgstr ""
+"Kunden erlauben, in monatlichen Raten zu zahlen. Dies wird nur angeboten, "
+"wenn Sie außerdem mindestens einen Zahlungsdienstleister aktivieren, der "
+"Ratenzahlung unterstützt."
+
+#: pretix/base/settings.py
+msgid "Maximum number of installments"
+msgstr "Maximale Anzahl an Raten"
+
+#: pretix/base/settings.py
+msgid "Number of monthly payments allowed (2-12)"
+msgstr "Anzahl der erlaubten monatlichen Zahlungen (2-12)"
+
+#: pretix/base/settings.py
+msgid "Minimum order value for installments"
+msgstr "Mindestbestellwert für Ratenzahlung"
+
+#: pretix/base/settings.py
+msgid "Minimum cart total required to enable installments"
+msgstr "Warenkorbsumme, ab der Ratenzahlung möglich ist"
+
+#: pretix/base/settings.py
+msgid "Grace period"
+msgstr "Nachfrist"
+
+#: pretix/base/settings.py
+msgid "Days after a failed installment before the order is cancelled"
+msgstr ""
+"Tage nach einer fehlgeschlagenen Rate, bevor die Bestellung storniert wird"
+
+#: pretix/base/settings.py
+msgid "Reminder days"
+msgstr "Erinnerungstage"
+
+#: pretix/base/settings.py
+msgid "Days before an installment due date to send a reminder email"
+msgstr ""
+"Tage vor dem Fälligkeitsdatum einer Rate, an denen eine Erinnerungs-E-Mail "
+"gesendet wird"
+
+#: pretix/base/settings.py
+msgid "Limit by event date"
+msgstr "Anhand des Veranstaltungsdatums begrenzen"
+
+#: pretix/base/settings.py
+msgid ""
+"Reduce the maximum number of installments based on how close the event "
+"date is"
+msgstr ""
+"Die maximale Anzahl an Raten abhängig davon reduzieren, wie nah das "
+"Veranstaltungsdatum ist"
+
+#: pretix/base/settings.py
+msgid "Location link"
+msgstr "Link zum Veranstaltungsort"
+
+#: pretix/base/settings.py
+msgid ""
+"If you set this, the event location shown to customers will link here, "
+"e.g. to a map service such as Google Maps or OpenStreetMap."
+msgstr ""
+"Wenn Sie dies setzen, wird der den Kunden angezeigte Veranstaltungsort "
+"hierhin verlinkt, z. B. zu einem Kartendienst wie Google Maps oder "
+"OpenStreetMap."
+
+#: pretix/base/settings.py
+msgid "Show event description on voucher redemption page"
+msgstr "Veranstaltungsbeschreibung auf der Gutschein-Einlöseseite anzeigen"
+
+#: pretix/base/settings.py
+msgid ""
+"If enabled, the event description shown on the shop front page will also "
+"be shown to customers who arrive via a voucher link or enter a voucher "
+"code."
+msgstr ""
+"Wenn aktiviert, wird die auf der Startseite des Shops angezeigte "
+"Veranstaltungsbeschreibung auch Kunden angezeigt, die über einen "
+"Gutschein-Link kommen oder einen Gutscheincode eingeben."
+
+#: pretix/control/forms/filter.py
+msgid "Installment plan status"
+msgstr "Status des Ratenzahlungsplans"
+
+#: pretix/control/forms/filter.py
+msgid "Without installment plan"
+msgstr "Ohne Ratenzahlungsplan"
+
+#: pretix/control/forms/filter.py
+msgid "Active installment plan"
+msgstr "Aktiver Ratenzahlungsplan"
+
+#: pretix/control/forms/filter.py
+msgid "Completed installment plan"
+msgstr "Abgeschlossener Ratenzahlungsplan"
+
+#: pretix/control/forms/filter.py
+msgid "Failed/Grace period"
+msgstr "Fehlgeschlagen/Nachfrist"
+
+#: pretix/control/templates/pretixcontrol/event/payment.html
+msgid "Installments"
+msgstr "Ratenzahlung"
+
+#: pretix/control/templates/pretixcontrol/order/index.html
+msgid "Installment Plan"
+msgstr "Ratenzahlungsplan"
+
+#: pretix/control/templates/pretixcontrol/order/index.html
+msgid "Grace period expires:"
+msgstr "Nachfrist endet:"
+
+#: pretix/control/templates/pretixcontrol/order/index.html, pretix/efcc/models.py, pretix/presale/templates/pretixpresale/event/checkout_confirm.html, pretix/presale/templates/pretixpresale/event/order.html, pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid "Total installments"
+msgstr "Raten insgesamt"
+
+#: pretix/control/templates/pretixcontrol/order/index.html
+msgid "Paid installments"
+msgstr "Bezahlte Raten"
+
+#: pretix/control/templates/pretixcontrol/order/index.html, pretix/efcc/models.py, pretix/presale/templates/pretixpresale/event/order.html, pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid "Amount per installment"
+msgstr "Betrag pro Rate"
+
+#: pretix/control/templates/pretixcontrol/order/index.html, pretix/presale/templates/pretixpresale/event/order.html
+msgid "Installment"
+msgstr "Rate"
+
+#: pretix/control/templates/pretixcontrol/order/index.html, pretix/control/templates/pretixcontrol/order/installment_retry.html, pretix/efcc/models.py, pretix/presale/templates/pretixpresale/event/order.html
+msgid "Due date"
+msgstr "Fälligkeitsdatum"
+
+#: pretix/control/templates/pretixcontrol/order/index.html, pretix/efcc/models.py
+msgid "State"
+msgstr "Status"
+
+#: pretix/control/templates/pretixcontrol/order/index.html
+msgid "Processed"
+msgstr "Verarbeitet"
+
+#: pretix/control/templates/pretixcontrol/order/index.html, pretix/control/templates/pretixcontrol/order/installment_plan_cancel.html
+msgid "Cancel installment plan"
+msgstr "Ratenzahlungsplan abbrechen"
+
+#: pretix/control/templates/pretixcontrol/order/index.html, pretix/control/templates/pretixcontrol/order/installment_retry.html
+msgid "Retry failed installment"
+msgstr "Fehlgeschlagene Rate erneut versuchen"
+
+#: pretix/control/templates/pretixcontrol/order/installment_plan_cancel.html
+msgid "Also cancel the order"
+msgstr "Auch die Bestellung stornieren"
+
+#: pretix/control/templates/pretixcontrol/order/installment_plan_cancel.html
+msgid "If checked, the order will also be canceled."
+msgstr "Wenn aktiviert, wird auch die Bestellung storniert."
+
+#: pretix/control/templates/pretixcontrol/order/installment_plan_cancel.html
+msgid "Yes, cancel installment plan"
+msgstr "Ja, Ratenzahlungsplan abbrechen"
+
+#: pretix/control/templates/pretixcontrol/order/installment_plan_cancel.html
+msgid ""
+"Do you really want to cancel this installment plan? This will revoke the "
+"payment token and cancel all pending installments."
+msgstr ""
+"Möchten Sie diesen Ratenzahlungsplan wirklich abbrechen? Dabei wird das "
+"Zahlungs-Token widerrufen und alle ausstehenden Raten werden storniert."
+
+#: pretix/control/templates/pretixcontrol/order/installment_retry.html, pretix/efcc/models.py, pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid "Installment number"
+msgstr "Ratennummer"
+
+#: pretix/control/templates/pretixcontrol/order/installment_retry.html, pretix/efcc/models.py
+msgid "Failure reason"
+msgstr "Fehlergrund"
+
+#: pretix/control/templates/pretixcontrol/order/installment_retry.html
+msgid "Yes, retry payment"
+msgstr "Ja, Zahlung erneut versuchen"
+
+#: pretix/control/templates/pretixcontrol/order/installment_retry.html
+msgid "Do you want to retry processing the failed installment payment?"
+msgstr "Möchten Sie die fehlgeschlagene Ratenzahlung erneut verarbeiten?"
+
+#: pretix/control/templates/pretixcontrol/organizers/outgoing_mail.html
+msgid "Retry sending"
+msgstr "Senden erneut versuchen"
+
+#: pretix/control/templates/pretixcontrol/organizers/outgoing_mail.html
+#, python-format
+msgid "Retry, sending to the order's current address (%(email)s)"
+msgstr ""
+"Erneut versuchen und an die aktuelle Adresse der Bestellung senden "
+"(%(email)s)"
+
+#: pretix/control/views/mail.py
+msgid "A retry of this email was scheduled."
+msgstr "Ein erneuter Sendeversuch für diese E-Mail wurde eingeplant."
+
+#: pretix/control/views/mail.py
+msgid "This email can no longer be retried."
+msgstr "Für diese E-Mail ist kein erneuter Sendeversuch mehr möglich."
+
+#: pretix/control/views/mail.py
+msgid "This email is not linked to an order with a contact address."
+msgstr "Diese E-Mail ist keiner Bestellung mit Kontaktadresse zugeordnet."
+
+#: pretix/control/views/mail.py
+msgid ""
+"This email has multiple recipients and cannot be redirected to the order's "
+"address."
+msgstr ""
+"Diese E-Mail hat mehrere Empfänger und kann nicht an die Adresse der "
+"Bestellung umgeleitet werden."
+
+#: pretix/control/views/orders.py
+msgid "This installment plan cannot be canceled."
+msgstr "Dieser Ratenzahlungsplan kann nicht abgebrochen werden."
+
+#: pretix/control/views/orders.py
+msgid "The installment plan and order have been canceled."
+msgstr "Der Ratenzahlungsplan und die Bestellung wurden storniert."
+
+#: pretix/control/views/orders.py
+msgid "The installment plan has been canceled."
+msgstr "Der Ratenzahlungsplan wurde abgebrochen."
+
+#: pretix/control/views/orders.py
+msgid "This installment plan is not active."
+msgstr "Dieser Ratenzahlungsplan ist nicht aktiv."
+
+#: pretix/control/views/orders.py
+msgid "No failed installment to retry."
+msgstr "Keine fehlgeschlagene Rate zum erneuten Versuch vorhanden."
+
+#: pretix/control/views/orders.py, pretix/presale/views/order.py
+msgid "This order does not have an installment plan."
+msgstr "Diese Bestellung hat keinen Ratenzahlungsplan."
+
+#: pretix/control/views/orders.py
+msgid "Installment payment retried successfully."
+msgstr "Der erneute Versuch der Ratenzahlung war erfolgreich."
+
+#: pretix/control/views/orders.py
+msgid "Installment payment retry failed."
+msgstr "Der erneute Versuch der Ratenzahlung ist fehlgeschlagen."
+
+#: pretix/control/views/orders.py
+#, python-brace-format
+msgid "Failed to retry installment: {error}"
+msgstr "Erneuter Versuch der Rate fehlgeschlagen: {error}"
+
+#: pretix/control/views/orders.py
+#, python-brace-format
+msgid "Failed to cancel installment plan: {error}"
+msgstr "Abbruch des Ratenzahlungsplans fehlgeschlagen: {error}"
+
+#: pretix/efcc/models.py
+msgctxt "installment_status"
+msgid "active"
+msgstr "aktiv"
+
+#: pretix/efcc/models.py
+msgctxt "installment_status"
+msgid "completed"
+msgstr "abgeschlossen"
+
+#: pretix/efcc/models.py
+msgctxt "installment_status"
+msgid "failed"
+msgstr "fehlgeschlagen"
+
+#: pretix/efcc/models.py
+msgctxt "installment_status"
+msgid "cancelled"
+msgstr "storniert"
+
+#: pretix/efcc/models.py
+msgid "Payment token"
+msgstr "Zahlungs-Token"
+
+#: pretix/efcc/models.py
+msgid "Tokenized payment method data"
+msgstr "Tokenisierte Daten der Zahlungsmethode"
+
+#: pretix/efcc/models.py
+msgid "Grace warning sent"
+msgstr "Nachfrist-Warnung gesendet"
+
+#: pretix/efcc/models.py, pretix/presale/templates/pretixpresale/event/order.html, pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid "Installments paid"
+msgstr "Bezahlte Raten"
+
+#: pretix/efcc/models.py
+msgid "Grace period end"
+msgstr "Ende der Nachfrist"
+
+#: pretix/efcc/models.py
+msgid "Created at"
+msgstr "Erstellt am"
+
+#: pretix/efcc/models.py
+msgid "Updated at"
+msgstr "Aktualisiert am"
+
+#: pretix/efcc/models.py
+msgctxt "installment_state"
+msgid "pending"
+msgstr "ausstehend"
+
+#: pretix/efcc/models.py
+msgctxt "installment_state"
+msgid "processing"
+msgstr "in Bearbeitung"
+
+#: pretix/efcc/models.py
+msgctxt "installment_state"
+msgid "paid"
+msgstr "bezahlt"
+
+#: pretix/efcc/models.py
+msgctxt "installment_state"
+msgid "failed"
+msgstr "fehlgeschlagen"
+
+#: pretix/efcc/models.py
+msgctxt "installment_state"
+msgid "cancelled"
+msgstr "storniert"
+
+#: pretix/efcc/models.py, pretix/presale/templates/pretixpresale/event/checkout_confirm.html, pretix/presale/templates/pretixpresale/event/order.html
+msgid "Installment plan"
+msgstr "Ratenzahlungsplan"
+
+#: pretix/efcc/models.py
+msgid "Processed at"
+msgstr "Verarbeitet am"
+
+#: pretix/efcc/models.py
+msgid "Reminder sent"
+msgstr "Erinnerung gesendet"
+
+#: pretix/presale/checkoutflow.py
+msgid "Please select a payment method that supports installments."
+msgstr "Bitte wählen Sie eine Zahlungsmethode, die Ratenzahlung unterstützt."
+
+#: pretix/presale/checkoutflow.py
+msgid "Please select a valid installment plan."
+msgstr "Bitte wählen Sie einen gültigen Ratenzahlungsplan."
+
+#: pretix/presale/templates/pretixpresale/event/checkout_confirm.html
+msgid "You have selected to pay in installments."
+msgstr "Sie haben die Ratenzahlung gewählt."
+
+#: pretix/presale/templates/pretixpresale/event/checkout_confirm.html
+msgid "Due today"
+msgstr "Heute fällig"
+
+#: pretix/presale/templates/pretixpresale/event/checkout_confirm.html
+msgid ""
+"The remaining payments will be automatically charged monthly to your "
+"payment method. You may receive email reminders before upcoming payments."
+msgstr ""
+"Die verbleibenden Zahlungen werden monatlich automatisch über Ihre "
+"Zahlungsmethode eingezogen. Vor anstehenden Zahlungen erhalten Sie "
+"gegebenenfalls Erinnerungs-E-Mails."
+
+#: pretix/presale/templates/pretixpresale/event/checkout_confirm.html
+#, python-format
+msgid "Your order total will be split into %(count)s payments."
+msgstr "Ihr Bestellwert wird auf %(count)s Zahlungen aufgeteilt."
+
+#: pretix/presale/templates/pretixpresale/event/checkout_payment.html
+msgid "Pay in installments"
+msgstr "In Raten zahlen"
+
+#: pretix/presale/templates/pretixpresale/event/checkout_payment.html
+msgid "Payment plan"
+msgstr "Zahlungsplan"
+
+#: pretix/presale/templates/pretixpresale/event/checkout_payment.html
+#, python-format
+msgid ""
+"\n"
+"                                            %(count)s monthly installments "
+"of approx. %(amount)s\n"
+"                                        "
+msgstr ""
+"\n"
+"                                            %(count)s monatliche Raten von "
+"ca. %(amount)s\n"
+"                                        "
+
+#: pretix/presale/templates/pretixpresale/event/order.html
+msgid ""
+"Your first installment has been received. The remaining installments will "
+"be charged automatically according to schedule."
+msgstr ""
+"Ihre erste Rate ist bei uns eingegangen. Die weiteren Raten werden "
+"automatisch gemäß Plan eingezogen."
+
+#: pretix/presale/templates/pretixpresale/event/order.html, pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid "of"
+msgstr "von"
+
+#: pretix/presale/templates/pretixpresale/event/order.html
+msgid "Next payment"
+msgstr "Nächste Zahlung"
+
+#: pretix/presale/templates/pretixpresale/event/order.html
+msgid "due on"
+msgstr "fällig am"
+
+#: pretix/presale/templates/pretixpresale/event/order.html, pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid "Update payment method"
+msgstr "Zahlungsmethode aktualisieren"
+
+#: pretix/presale/templates/pretixpresale/event/order.html
+msgid "Payment history"
+msgstr "Zahlungsverlauf"
+
+#: pretix/presale/templates/pretixpresale/event/order.html
+msgid "Paid on"
+msgstr "Bezahlt am"
+
+#: pretix/presale/templates/pretixpresale/event/order.html
+#, python-format
+msgid ""
+"Your installment payment of %(amount)s has failed. Please update your "
+"payment method by %(date)s to avoid cancellation of your order."
+msgstr ""
+"Ihre Ratenzahlung über %(amount)s ist fehlgeschlagen. Bitte aktualisieren "
+"Sie Ihre Zahlungsmethode bis zum %(date)s, um eine Stornierung Ihrer "
+"Bestellung zu vermeiden."
+
+#: pretix/presale/templates/pretixpresale/event/order_cancel.html
+#, python-format
+msgid ""
+"You have paid %(paid)s towards this order in installments so far. The "
+"installments that are still scheduled will not be charged."
+msgstr ""
+"Sie haben für diese Bestellung bisher %(paid)s in Raten gezahlt. Die noch "
+"geplanten Raten werden nicht eingezogen."
+
+#: pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid "Payment required"
+msgstr "Zahlung erforderlich"
+
+#: pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid "Failed installment details"
+msgstr "Details zur fehlgeschlagenen Rate"
+
+#: pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid "Amount due"
+msgstr "Fälliger Betrag"
+
+#: pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid "Original due date"
+msgstr "Ursprüngliches Fälligkeitsdatum"
+
+#: pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid "Grace period ends"
+msgstr "Nachfrist endet"
+
+#: pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid "Payment form could not be loaded. Please contact support."
+msgstr ""
+"Das Zahlungsformular konnte nicht geladen werden. Bitte wenden Sie sich an "
+"den Support."
+
+#: pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid "Installment plan overview"
+msgstr "Übersicht des Ratenzahlungsplans"
+
+#: pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+#, python-format
+msgid "Update payment method: %(code)s"
+msgstr "Zahlungsmethode aktualisieren: %(code)s"
+
+#: pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid ""
+"Your recent installment payment has failed. Please update your payment "
+"method to avoid cancellation of your order."
+msgstr ""
+"Ihre letzte Ratenzahlung ist fehlgeschlagen. Bitte aktualisieren Sie Ihre "
+"Zahlungsmethode, um eine Stornierung Ihrer Bestellung zu vermeiden."
+
+#: pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+#, python-format
+msgid "If payment is not received by %(date)s, your order will be cancelled."
+msgstr ""
+"Wenn die Zahlung nicht bis zum %(date)s eingeht, wird Ihre Bestellung "
+"storniert."
+
+#: pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
+msgid ""
+"Please provide your updated payment information below. Your payment method "
+"will be saved and used for future installment payments."
+msgstr ""
+"Bitte geben Sie unten Ihre aktualisierten Zahlungsdaten ein. Ihre "
+"Zahlungsmethode wird gespeichert und für künftige Ratenzahlungen verwendet."
+
+#: pretix/presale/views/order.py
+msgid "Payment provider not available"
+msgstr "Zahlungsdienstleister nicht verfügbar"
+
+#: pretix/presale/views/order.py
+msgid "This order does not have any failed installments requiring recovery."
+msgstr ""
+"Diese Bestellung hat keine fehlgeschlagenen Raten, die behoben werden "
+"müssen."
+
+#: pretix/presale/views/order.py
+msgid "The payment provider for this order is not available."
+msgstr "Der Zahlungsdienstleister für diese Bestellung ist nicht verfügbar."
+
+#: pretix/presale/views/order.py
+msgid ""
+"Your payment method has been updated and payment processed successfully."
+msgstr ""
+"Ihre Zahlungsmethode wurde aktualisiert und die Zahlung erfolgreich "
+"verarbeitet."
+
+#: pretix/presale/views/order.py
+msgid "Please check your payment information and try again."
+msgstr "Bitte überprüfen Sie Ihre Zahlungsdaten und versuchen Sie es erneut."
+
+#: pretix/presale/views/order.py
+msgid "There was an error processing your request. Please try again."
+msgstr ""
+"Bei der Verarbeitung Ihrer Anfrage ist ein Fehler aufgetreten. Bitte "
+"versuchen Sie es erneut."
+
+#: pretix/presale/views/order.py
+msgid ""
+"Your payment method was updated, but the payment could not be processed "
+"immediately. We will retry automatically."
+msgstr ""
+"Ihre Zahlungsmethode wurde aktualisiert, die Zahlung konnte jedoch nicht "
+"sofort verarbeitet werden. Wir versuchen es automatisch erneut."
+
+
 #~ msgid "All actions"
 #~ msgstr "Alle Aktionen"
 
