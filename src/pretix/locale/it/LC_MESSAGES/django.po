@@ -35778,8 +35778,7 @@ msgid ""
 "\n"
 "this is a final warning regarding your failed installment payment for "
 "{event}.\n"
-"If we do not receive payment by {expire_date}, your order will be "
-"cancelled.\n"
+"If we do not receive payment by {expire_date}, your order will be canceled.\n"
 "\n"
 "You can resolve this immediately at:\n"
 "{url}\n"
@@ -35809,8 +35808,7 @@ msgstr "Urgente: pagamento richiesto per {code}"
 msgid ""
 "Hello,\n"
 "\n"
-"your order for {event} has been cancelled because we did not receive "
-"payment\n"
+"your order for {event} has been canceled because we did not receive payment\n"
 "for your overdue installment within the grace period.\n"
 "\n"
 "Any installments already paid will be refunded according to our terms.\n"
@@ -35828,11 +35826,6 @@ msgstr ""
 "\n"
 "Un saluto,  \n"
 "Il team di {event}"
-
-#: pretix/base/settings.py
-#, python-brace-format
-msgid "Order cancelled: {code}"
-msgstr "Ordine annullato: {code}"
 
 #: pretix/base/settings.py
 msgid "Enable installment payments"
@@ -35869,7 +35862,7 @@ msgid "Grace period"
 msgstr "Periodo di tolleranza"
 
 #: pretix/base/settings.py
-msgid "Days after a failed installment before the order is cancelled"
+msgid "Days after a failed installment before the order is canceled"
 msgstr "Giorni dopo una rata non riuscita prima che l’ordine venga annullato"
 
 #: pretix/base/settings.py
@@ -36111,7 +36104,7 @@ msgstr "non riuscito"
 
 #: pretix/efcc/models.py
 msgctxt "installment_status"
-msgid "cancelled"
+msgid "canceled"
 msgstr "annullato"
 
 #: pretix/efcc/models.py
@@ -36164,7 +36157,7 @@ msgstr "non riuscita"
 
 #: pretix/efcc/models.py
 msgctxt "installment_state"
-msgid "cancelled"
+msgid "canceled"
 msgstr "annullata"
 
 #: pretix/efcc/models.py, pretix/presale/templates/pretixpresale/event/checkout_confirm.html, pretix/presale/templates/pretixpresale/event/order.html
@@ -36326,7 +36319,7 @@ msgstr ""
 
 #: pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
 #, python-format
-msgid "If payment is not received by %(date)s, your order will be cancelled."
+msgid "If payment is not received by %(date)s, your order will be canceled."
 msgstr ""
 "Se il pagamento non verrà ricevuto entro il %(date)s, il tuo ordine verrà "
 "annullato."
@@ -36472,9 +36465,6 @@ msgstr ""
 
 #~ msgid "Please do not use special characters in names."
 #~ msgstr "Per favore non usare caratteri speciali nei nomi."
-
-#~ msgid "State"
-#~ msgstr "Stato"
 
 #~ msgid "Program times: date and time"
 #~ msgstr "Orari del programma: data e ora"
