@@ -33,8 +33,10 @@ from pretix.base.models import (
     Event, Item, Order, OrderPayment, OrderPosition, Organizer,
 )
 from pretix.base.services.installments import (
-    create_installment_plan, process_due_installments, process_expired_plans,
-    send_grace_period_warnings, send_installment_reminders,
+    PROCESSING_LEASE, claim_installment, create_installment_plan,
+    process_due_installments, process_expired_plans,
+    process_single_installment, send_grace_period_warnings,
+    send_installment_reminders,
 )
 from pretix.base.services.orders import cancel_order
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
@@ -429,6 +431,97 @@ class TestProcessDueInstallmentsAfterCheckout:
             second.refresh_from_db()
         assert second.state == ScheduledInstallment.STATE_PAID
         assert provider.execute_installment.call_count == 1
+
+
+@pytest.mark.django_db
+class TestInstallmentClaiming:
+    """
+    Nothing serializes the callers of process_single_installment -- the periodic task, the
+    management command, the control-panel button and the API endpoint can all reach the
+    same installment at once. The claim is what stops that becoming a second charge.
+    """
+
+    def _pending(self, plan, **kwargs):
+        kwargs.setdefault('state', ScheduledInstallment.STATE_PENDING)
+        return ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), **kwargs
+        )
+
+    def test_a_claim_excludes_everyone_else(self, event, order, plan):
+        inst = self._pending(plan)
+
+        with scope(organizer=event.organizer):
+            assert claim_installment(inst) is True
+            assert claim_installment(ScheduledInstallment.objects.get(pk=inst.pk)) is False
+
+        inst.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_PROCESSING
+
+    def test_a_second_processor_does_not_charge_a_claimed_installment(self, event, order, plan):
+        inst = self._pending(plan)
+        provider = _mock_provider()
+
+        with scope(organizer=event.organizer):
+            claim_installment(ScheduledInstallment.objects.get(pk=inst.pk))
+            with _patch_providers(provider):
+                assert process_single_installment(inst) is False
+
+        assert provider.execute_installment.call_count == 0
+        assert order.payments.count() == 0
+
+    def test_a_claim_from_a_dead_run_expires(self, event, order, plan):
+        inst = self._pending(
+            plan,
+            state=ScheduledInstallment.STATE_PROCESSING,
+            processed_at=now() - PROCESSING_LEASE - timedelta(minutes=1),
+        )
+
+        with scope(organizer=event.organizer):
+            assert claim_installment(inst) is True
+
+    def test_a_fresh_claim_does_not_expire(self, event, order, plan):
+        inst = self._pending(
+            plan,
+            state=ScheduledInstallment.STATE_PROCESSING,
+            processed_at=now(),
+        )
+
+        with scope(organizer=event.organizer):
+            assert claim_installment(inst) is False
+
+    def test_the_charge_still_settles_the_installment(self, event, order, plan):
+        """The claim moves the installment through `processing`; confirm() must still see it."""
+        inst = self._pending(plan)
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                assert process_single_installment(inst) is True
+
+        inst.refresh_from_db()
+        plan.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_PAID
+        assert plan.installments_paid == 2
+
+    def test_a_declined_charge_hands_the_installment_back(self, event, order, plan):
+        inst = self._pending(plan)
+
+        with _patch_providers(_mock_provider(execute_result=False)):
+            with scope(organizer=event.organizer):
+                process_single_installment(inst)
+
+        inst.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_FAILED
+
+    def test_a_missing_provider_hands_the_installment_back(self, event, order, plan):
+        inst = self._pending(plan)
+
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={}):
+            with scope(organizer=event.organizer):
+                assert process_single_installment(inst) is False
+
+        inst.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_PENDING
 
 
 @pytest.mark.django_db

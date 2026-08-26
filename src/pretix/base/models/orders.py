@@ -1993,7 +1993,11 @@ class OrderPayment(models.Model):
 
         installment = ScheduledInstallment.objects.filter(
             payment=self,
-            state__in=(ScheduledInstallment.STATE_PENDING, ScheduledInstallment.STATE_FAILED),
+            state__in=(
+                ScheduledInstallment.STATE_PENDING,
+                ScheduledInstallment.STATE_PROCESSING,
+                ScheduledInstallment.STATE_FAILED,
+            ),
         ).first()
         if installment is not None:
             installment.plan.record_successful_payment()
