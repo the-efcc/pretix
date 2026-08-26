@@ -346,15 +346,42 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
         return success
 
 
+def due_installments_queryset():
+    """
+    The installments the automatic processor is allowed to charge.
+
+    Due and pending is not enough on its own. Installment 1 is created during checkout
+    already pointing at the payment the customer is about to make, and it is due
+    immediately -- so between order placement and the payment being confirmed it matches
+    "due and pending" while a charge for it is already in flight. Charging it here would
+    take the money a second time. The same holds for a recovery payment the customer has
+    started but not finished.
+
+    So an installment is only ours to charge once no payment of its own is still live.
+    ``created`` and ``pending`` are the live states; ``confirmed`` settles the installment
+    through :py:meth:`OrderPayment.confirm`, and the remaining states are dead ends that
+    leave the installment to us.
+    """
+    return ScheduledInstallment.objects.filter(
+        state=ScheduledInstallment.STATE_PENDING,
+        due_date__lte=now(),
+    ).exclude(
+        payment__isnull=False,
+        payment__state__in=(
+            OrderPayment.PAYMENT_STATE_CREATED,
+            OrderPayment.PAYMENT_STATE_PENDING,
+        ),
+    )
+
+
 def process_due_installments():
     """
     Processes all scheduled installments that are due and pending.
     """
     with scopes_disabled():
-        qs = ScheduledInstallment.objects.filter(
-            state=ScheduledInstallment.STATE_PENDING,
-            due_date__lte=now()
-        ).select_related('plan', 'plan__order', 'plan__order__event')
+        qs = due_installments_queryset().select_related(
+            'plan', 'plan__order', 'plan__order__event'
+        )
 
     for installment in qs:
         try:
