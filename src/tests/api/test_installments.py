@@ -36,7 +36,7 @@ def env(client):
     with scope(organizer=orga):
         event = Event.objects.create(
             organizer=orga, name='30C3', slug='30c3',
-            date_from=now(), live=True,
+            date_from=now() + timedelta(days=365), live=True,
         )
         item = Item.objects.create(event=event, name='Ticket', default_price=Decimal('100.00'))
         order = Order.objects.create(

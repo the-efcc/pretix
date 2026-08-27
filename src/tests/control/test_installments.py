@@ -38,7 +38,8 @@ def event():
     o = Organizer.objects.create(name='Dummy', slug='dummy')
     with scope(organizer=o):
         event = Event.objects.create(
-            organizer=o, name='Dummy Event', slug='dummy', date_from=now(),
+            organizer=o, name='Dummy Event', slug='dummy',
+            date_from=now() + timedelta(days=365),
         )
         yield event
 

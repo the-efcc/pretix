@@ -38,7 +38,7 @@ def env():
         orga = Organizer.objects.create(name='TestOrg', slug='testorg')
         event = Event.objects.create(
             organizer=orga, name='TestEvent', slug='testevent',
-            date_from=now(), live=True,
+            date_from=now() + timedelta(days=365), live=True,
         )
         item = Item.objects.create(event=event, name='Ticket', default_price=Decimal('300.00'))
         quota = Quota.objects.create(event=event, name='Quota', size=10)

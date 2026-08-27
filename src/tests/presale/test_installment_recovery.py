@@ -42,7 +42,7 @@ class TestInstallmentRecovery(TestCase):
         self.orga.settings.customer_accounts = False
         self.event = Event.objects.create(
             organizer=self.orga, name='Dummy Event', slug='dummy',
-            date_from=now(), live=True,
+            date_from=now() + timedelta(days=365), live=True,
         )
         self.order = Order.objects.create(
             code='ABCDE', event=self.event, email='test@example.com',
