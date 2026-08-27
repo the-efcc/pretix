@@ -1852,6 +1852,34 @@ class OrderInstallmentRecovery(EventViewMixin, OrderDetailMixin, TemplateView):
             'payment': payment.pk,
         })
 
+    def _recovery_payment(self):
+        """
+        The payment this recovery attempt charges against.
+
+        Reuses an attempt that is still open rather than starting another one. Customers
+        resubmit -- they hit back, they double-click, the provider bounces them home -- and
+        a fresh OrderPayment per submission litters the order with abandoned `created` rows
+        that the organizer then has to make sense of.
+        """
+        existing = self.order.payments.filter(
+            provider=self.installment_plan.payment_provider,
+            state=OrderPayment.PAYMENT_STATE_CREATED,
+            amount=self.failed_installment.amount,
+            installment__pk=self.failed_installment.pk,
+        ).first()
+        if existing is not None:
+            return existing
+
+        payment = OrderPayment.objects.create(
+            order=self.order,
+            provider=self.installment_plan.payment_provider,
+            amount=self.failed_installment.amount,
+            state=OrderPayment.PAYMENT_STATE_CREATED,
+        )
+        self.failed_installment.payment = payment
+        self.failed_installment.save(update_fields=['payment'])
+        return payment
+
     def _cleanup_recovery_payment(self, payment, previous_payment_id):
         """
         Undo a recovery attempt that never got as far as charging anything.
@@ -1896,15 +1924,7 @@ class OrderInstallmentRecovery(EventViewMixin, OrderDetailMixin, TemplateView):
         payment = None
         previous_payment_id = self.failed_installment.payment_id
         try:
-            payment = OrderPayment.objects.create(
-                order=self.order,
-                provider=self.installment_plan.payment_provider,
-                amount=self.failed_installment.amount,
-                state=OrderPayment.PAYMENT_STATE_CREATED,
-            )
-
-            self.failed_installment.payment = payment
-            self.failed_installment.save(update_fields=['payment'])
+            payment = self._recovery_payment()
 
             resp = self.provider.payment_prepare(request, payment)
             if resp is False:
