@@ -150,8 +150,9 @@ def create_installment_plan(
     :param installments_count: Number of installments
     :param fee: Optional payment fee for the first installment
     :param info_data: Optional payment info dict for the first installment
-    :param amount: Explicit amount for the installment plan. If None, uses order.total minus payment fees.
-                   Use this when multi-use payments (e.g. gift cards) cover part of the order.
+    :param amount: Explicit amount for the installment plan, inclusive of ``fee``. If None,
+                   uses order.total minus payment fees. Use this when multi-use payments
+                   (e.g. gift cards) cover part of the order.
     :return: The created InstallmentPlan
     :raises ValueError: If the provider does not support installments
     """
@@ -168,9 +169,16 @@ def create_installment_plan(
             f"allowed based on the event date."
         )
 
-    payment_fees = Decimal('0.00')
+    # Only the ticket value is split; the payment fee is charged once, up front, with the
+    # first installment. That is what the customer was shown at checkout, and spreading it
+    # instead would quote them one figure and charge another.
+    #
+    # `amount` arrives fee-inclusive (it is the payment's share of the order total), so the
+    # fee has to come back out before the split. `fee` is the OrderFee attached to this very
+    # payment, which is exactly the part of `amount` that is fee.
     if amount is not None:
-        base_total = amount
+        payment_fees = fee.value if fee is not None else Decimal('0.00')
+        base_total = amount - payment_fees
     else:
         payment_fees = order.fees.filter(fee_type=OrderFee.FEE_TYPE_PAYMENT).aggregate(
             total=models.Sum('value')

@@ -28,9 +28,11 @@ from django.utils.timezone import now
 from django_scopes import scope
 
 from pretix.base.models import (
-    CartPosition, Event, Item, Order, OrderPayment, Organizer, Quota,
+    CartPosition, Event, Item, Order, OrderFee, OrderPayment, Organizer, Quota,
 )
-from pretix.base.services.installments import create_installment_plan
+from pretix.base.services.installments import (
+    calculate_installment_amounts, create_installment_plan,
+)
 from pretix.base.services.orders import _create_order, perform_order
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
@@ -306,6 +308,97 @@ class TestPerformOrderWithInstallments:
             ).first()
             assert first_installment_payment.amount == Decimal('20.00')
             assert order.installment_plan.first_payment == first_installment_payment
+
+
+@pytest.mark.django_db
+class TestPaymentFeeIsChargedUpFront:
+    """
+    The checkout preview (CartMixin.get_cart) quotes the first payment as
+    "one installment of the ticket value, plus the whole payment fee". What actually gets
+    charged has to agree with that figure.
+    """
+
+    def _fee_provider(self, fee):
+        p = _mock_order_provider()
+        p.calculate_fee.return_value = fee
+        p.identifier = 'dummy'  # lands on OrderFee.internal_type, so it has to be a string
+        return p
+
+    def test_first_installment_carries_the_whole_fee(self, event, cart_position):
+        event.settings.set('installments_enabled', True)
+        provider = self._fee_provider(Decimal('3.00'))
+
+        payment_request = {
+            'provider': 'dummy',
+            'payment_amount': Decimal('0.00'),
+            'info_data': {},
+            'pay_in_installments': True,
+            'installments_count': 3,
+        }
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
+            result = perform_order(
+                event=event.id, payments=[payment_request], positions=[cart_position.id],
+                meta_info={}, email='test@example.com', locale='en',
+            )
+
+        with scope(organizer=event.organizer):
+            order = Order.objects.get(pk=result['order_id'])
+            plan = order.installment_plan
+            amounts = [i.amount for i in plan.installments.order_by('installment_number')]
+
+            # EUR 100 ticket + EUR 3 fee. The ticket splits 33.33 / 33.33 / 33.34 and the
+            # fee rides on the first payment -- not 34.33 / 34.33 / 34.34.
+            assert order.total == Decimal('103.00')
+            assert amounts == [Decimal('36.33'), Decimal('33.33'), Decimal('33.34')]
+            assert sum(amounts) == order.total
+
+    def test_preview_and_charge_agree(self, event, cart_position):
+        """The figure CartMixin shows and the amount actually charged are the same."""
+        event.settings.set('installments_enabled', True)
+        provider = self._fee_provider(Decimal('3.00'))
+
+        payment_request = {
+            'provider': 'dummy',
+            'payment_amount': Decimal('0.00'),
+            'info_data': {},
+            'pay_in_installments': True,
+            'installments_count': 3,
+        }
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
+            result = perform_order(
+                event=event.id, payments=[payment_request], positions=[cart_position.id],
+                meta_info={}, email='test@example.com', locale='en',
+            )
+
+        with scope(organizer=event.organizer):
+            order = Order.objects.get(pk=result['order_id'])
+            fees = list(order.fees.all())
+            payment_fees = sum(f.value for f in fees if f.fee_type == OrderFee.FEE_TYPE_PAYMENT)
+            preview = calculate_installment_amounts(order.total - payment_fees, 3)[0] + payment_fees
+
+            assert order.installment_plan.first_payment.amount == preview
+
+    def test_no_fee_leaves_the_split_untouched(self, event, cart_position):
+        event.settings.set('installments_enabled', True)
+        provider = self._fee_provider(Decimal('0.00'))
+
+        payment_request = {
+            'provider': 'dummy',
+            'payment_amount': Decimal('0.00'),
+            'info_data': {},
+            'pay_in_installments': True,
+            'installments_count': 3,
+        }
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
+            result = perform_order(
+                event=event.id, payments=[payment_request], positions=[cart_position.id],
+                meta_info={}, email='test@example.com', locale='en',
+            )
+
+        with scope(organizer=event.organizer):
+            order = Order.objects.get(pk=result['order_id'])
+            amounts = [i.amount for i in order.installment_plan.installments.order_by('installment_number')]
+            assert amounts == [Decimal('33.33'), Decimal('33.33'), Decimal('33.34')]
 
 
 @pytest.mark.django_db
