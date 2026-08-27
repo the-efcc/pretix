@@ -33,7 +33,7 @@ from django.utils.timezone import now
 from django_scopes import scopes_disabled
 
 from pretix.base.email import get_email_context
-from pretix.base.i18n import language
+from pretix.base.i18n import LazyCurrencyNumber, language
 from pretix.base.models import Order, OrderFee, OrderPayment, Quota
 from pretix.base.signals import order_canceled, periodic_task
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
@@ -519,6 +519,10 @@ def process_expired_plans():
             order = plan.order
             event = order.event
 
+            # Read before cancelling, so the figure is the one the customer actually paid
+            # rather than whatever the order looks like afterwards.
+            paid_amount = order.payment_refund_sum
+
             cancel_installment_plan(plan, cancel_order=True, user=None, log=True, send_mail=False)
 
             with language(order.locale, event.settings.region):
@@ -526,6 +530,10 @@ def process_expired_plans():
                 email_template = event.settings.mail_text_installment_cancelled
 
                 context = get_email_context(event=event, order=order)
+                # No refund is issued here, deliberately -- see cancel_installment_plan --
+                # so the mail has to tell the customer what they paid and that getting it
+                # back is a conversation with the organizer, not something already underway.
+                context['paid_amount'] = LazyCurrencyNumber(paid_amount, event.currency)
 
                 try:
                     order.send_mail(
