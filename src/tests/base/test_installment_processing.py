@@ -769,6 +769,58 @@ class TestProcessExpiredPlans:
         assert len(mail.outbox) == 1
         assert order.code in mail.outbox[0].subject
 
+    def _expired_plan_with_payments(self, order, plan, paid=Decimal('200.00')):
+        plan.grace_period_end = now() - timedelta(days=1)
+        plan.save()
+        order.payments.create(
+            state=OrderPayment.PAYMENT_STATE_CONFIRMED, provider='dummy',
+            amount=paid, payment_date=now(),
+        )
+        return plan
+
+    def test_the_cancellation_email_does_not_promise_a_refund(self, event, order, plan):
+        """
+        Nothing is refunded here by design -- the customer has to take it up with the
+        organizer -- so the mail must not tell them money is on its way back.
+        """
+        self._expired_plan_with_payments(order, plan)
+        mail.outbox = []
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                process_expired_plans()
+
+        body = mail.outbox[0].body
+        assert 'not refunded' in body
+        assert 'get in touch' in body
+        assert 'will be refunded' not in body
+
+    def test_the_cancellation_email_states_what_was_paid(self, event, order, plan):
+        self._expired_plan_with_payments(order, plan, paid=Decimal('200.00'))
+        mail.outbox = []
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                process_expired_plans()
+
+        body = mail.outbox[0].body
+        assert '200.00' in body
+        assert '{paid_amount}' not in body  # the placeholder actually resolved
+
+    def test_no_refund_is_created(self, event, order, plan):
+        self._expired_plan_with_payments(order, plan)
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                process_expired_plans()
+
+        with scope(organizer=event.organizer):
+            order.refresh_from_db()
+            assert order.status == Order.STATUS_CANCELED
+            assert order.refunds.count() == 0
+            # The money is still recorded against the order for the organizer to act on.
+            assert order.payment_refund_sum == Decimal('200.00')
+
 
 @pytest.mark.django_db
 class TestOrderCancellation:

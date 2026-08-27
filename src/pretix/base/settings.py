@@ -2740,7 +2740,8 @@ Your {event} team"""))  # noqa: W291
 your order for {event} has been canceled because we did not receive payment
 for your overdue installment within the grace period.
 
-Any installments already paid will be refunded according to our terms.
+You have paid {paid_amount} towards this order. This amount is not refunded
+automatically. If you would like to discuss it, please get in touch with us.
 
 Best regards,  
 Your {event} team"""))  # noqa: W291
