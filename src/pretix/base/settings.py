@@ -1176,14 +1176,15 @@ DEFAULTS = {
         ),
     },
     'installments_reminder_days': {
-        'default': '3',
+        'default': None,
         'type': int,
         'form_class': forms.IntegerField,
         'serializer_class': serializers.IntegerField,
         'write_permission': 'event.settings.payment:write',
         'form_kwargs': dict(
             label=_('Reminder days'),
-            help_text=_('Days before an installment due date to send a reminder email'),
+            help_text=_('Days before an installment due date to send a reminder email. Leave this empty to send no '
+                        'reminders at all.'),
             min_value=1,
             validators=[MinValueValidator(1)],
         ),

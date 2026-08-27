@@ -496,6 +496,27 @@ class EventsTest(SoupTest):
         assert self.event1.settings.get('installments_reminder_days', as_type=int) == 4
         assert self.event1.settings.get('installments_limit_by_event_date', as_type=bool)
 
+    def test_payment_settings_reminders_are_off_by_default_and_can_be_cleared(self):
+        assert self.event1.settings.get('installments_reminder_days', as_type=int) is None
+
+        url = '/control/event/%s/%s/settings/payment' % (self.orga1.slug, self.event1.slug)
+        base = {
+            'payment_term_days': '2',
+            'payment_term_minutes': '30',
+            'payment_term_mode': 'days',
+            'installments_enabled': 'on',
+            'installments_count': '6',
+            'installments_grace_period_days': '9',
+            'tax_rule_payment': 'default',
+        }
+        self.post_doc(url, dict(base, installments_reminder_days='4'))
+        self.event1.settings.flush()
+        assert self.event1.settings.get('installments_reminder_days', as_type=int) == 4
+
+        self.post_doc(url, dict(base, installments_reminder_days=''))
+        self.event1.settings.flush()
+        assert self.event1.settings.get('installments_reminder_days', as_type=int) is None
+
     def test_payment_settings_last_date_payment_after_presale_end(self):
         self.event1.presale_end = now()
         self.event1.save(update_fields=['presale_end'])
