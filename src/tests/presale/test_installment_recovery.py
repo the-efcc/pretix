@@ -188,6 +188,37 @@ class TestInstallmentRecovery(TestCase):
             self.installment.refresh_from_db()
             assert self.installment.payment == original
 
+    def test_resubmitting_reuses_the_open_payment(self):
+        """A customer who hits the button twice should not litter the order with payments."""
+        provider = self._mock_provider(execute_payment_needs_user=True)
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
+            first = self.client.post(self._url())
+            second = self.client.post(self._url())
+
+        assert first.status_code == 302
+        assert second.status_code == 302
+        with scopes_disabled():
+            assert self.order.payments.count() == 1
+            self.installment.refresh_from_db()
+            assert self.installment.payment == self.order.payments.get()
+
+    def test_a_failed_attempt_does_not_block_a_later_one(self):
+        """Only an attempt still open is reused; a failed one starts a fresh payment."""
+        provider = self._mock_provider()
+        provider.execute_payment.side_effect = PaymentException('declined')
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
+            self.client.post(self._url())
+
+        with scopes_disabled():
+            assert self.order.payments.get().state == OrderPayment.PAYMENT_STATE_FAILED
+
+        provider = self._mock_provider(execute_payment_needs_user=True)
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
+            assert self.client.post(self._url()).status_code == 302
+
+        with scopes_disabled():
+            assert self.order.payments.count() == 2
+
     def test_abandoned_recovery_without_an_original_leaves_no_link(self):
         provider = self._mock_provider(payment_prepare=False)
         with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
