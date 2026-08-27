@@ -291,3 +291,36 @@ class TestInstallmentRetryView:
             r = staff_client.post(_order_url(order, 'installment-plan/retry'), {})
         assert r.status_code == 302
         assert provider.execute_installment.call_count == 0
+
+
+@pytest.mark.django_db
+class TestPaymentSettingsWarning:
+    """
+    Installments only reach checkout if some provider implements them. Nothing on the
+    settings page said so, so an organizer could enable them, save, and see no change.
+    """
+
+    def _url(self, event):
+        return '/control/event/{}/{}/settings/payment'.format(
+            event.organizer.slug, event.slug,
+        )
+
+    def test_warns_when_no_provider_supports_installments(self, staff_client, event):
+        r = staff_client.get(self._url(event))
+        assert r.status_code == 200
+        assert r.context['installments_have_no_provider'] is True
+        assert 'will have no effect' in r.content.decode()
+
+    def test_no_warning_once_a_provider_supports_them(self, staff_client, event):
+        provider = MagicMock()
+        provider.installments_supported = True
+        provider.is_implicit = False
+        provider.settings_form_fields = {}
+        provider.settings_content_render.return_value = ''
+        provider.verbose_name = 'Dummy'
+        with patch('pretix.base.models.Event.get_payment_providers',
+                   return_value={'dummy': provider}):
+            r = staff_client.get(self._url(event))
+        assert r.status_code == 200
+        assert r.context['installments_have_no_provider'] is False
+        assert 'will have no effect' not in r.content.decode()
