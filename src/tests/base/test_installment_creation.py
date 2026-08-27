@@ -238,6 +238,46 @@ class TestPerformOrderWithInstallments:
             assert order.installment_plan.total_installments == 4
             assert order.payments.first().amount == Decimal('25.00')
 
+    def test_order_is_valid_while_pending(self, event, cart_position):
+        """
+        A plan only settles its order once the last installment is collected, so the
+        order stays pending for the whole term. Its tickets are valid from the start
+        anyway -- that is what buying in installments is for. ``_valid_if_pending`` is
+        pinned off on the provider so only the installment plan can be the reason.
+        """
+        provider = _mock_order_provider()
+        provider.settings.get.return_value = False
+
+        with scope(organizer=event.organizer):
+            result = self._perform(event, cart_position, provider)
+            order = Order.objects.get(pk=result['order_id'])
+
+            assert order.status == Order.STATUS_PENDING
+            assert order.valid_if_pending
+
+    def test_order_paid_in_full_is_not_valid_while_pending(self, event, cart_position):
+        event.settings.set('installments_enabled', True)
+        provider = _mock_order_provider()
+        provider.settings.get.return_value = False
+
+        with scope(organizer=event.organizer):
+            with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
+                result = perform_order(
+                    event=event.id,
+                    payments=[{
+                        'provider': 'dummy',
+                        'payment_amount': Decimal('100.00'),
+                        'info_data': {},
+                    }],
+                    positions=[cart_position.id],
+                    meta_info={},
+                    email='test@example.com',
+                    locale='en',
+                )
+            order = Order.objects.get(pk=result['order_id'])
+
+            assert not order.valid_if_pending
+
     def test_uses_user_selected_count(self, event, cart_position):
         event.settings.set('installments_count', 5)
 

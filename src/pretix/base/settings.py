@@ -1114,9 +1114,9 @@ DEFAULTS = {
             label=_('Enable installment payments'),
             help_text=_(
                 'Allow customers to pay in monthly installments. This will only be offered if you also enable at '
-                'least one payment provider that supports installments. Note that an order paid in installments '
-                'stays pending until the final installment is collected, so its tickets are only valid before then '
-                'if you also enable "Confirm order regardless of payment" on that payment provider.'
+                'least one payment provider that supports installments. An order paid in installments stays pending '
+                'until the final installment is collected, but its tickets are valid from the moment the order is '
+                'placed.'
             ),
         )
     },
