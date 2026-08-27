@@ -452,7 +452,9 @@ def due_installments_queryset():
     """
     The installments the automatic processor is allowed to charge.
 
-    Due and pending is not enough on its own. Installment 1 is created during checkout
+    Due and pending is not enough on its own. The plan has to still be active and the
+    order has to still be one we would collect against, and beyond that: installment 1 is
+    created during checkout
     already pointing at the payment the customer is about to make, and it is due
     immediately -- so between order placement and the payment being confirmed it matches
     "due and pending" while a charge for it is already in flight. Charging it here would
@@ -467,6 +469,12 @@ def due_installments_queryset():
     return ScheduledInstallment.objects.filter(
         state=ScheduledInstallment.STATE_PENDING,
         due_date__lte=now(),
+        # Only an active plan on an order that is still expecting money. Cancelling an
+        # order cancels its installments through the order_canceled receiver, but nothing
+        # covers an order an organizer marked expired by hand -- without this, its
+        # installments keep being charged month after month.
+        plan__status=InstallmentPlan.STATUS_ACTIVE,
+        plan__order__status__in=(Order.STATUS_PENDING, Order.STATUS_PAID),
     ).exclude(
         payment__isnull=False,
         payment__state__in=(
