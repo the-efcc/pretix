@@ -28,8 +28,12 @@ from django.utils.timezone import now
 from django_scopes import scopes_disabled
 from tests.testdummy.payment import DummyPaymentProvider
 
-from pretix.base.models import Event, Order, OrderPayment, Organizer
-from pretix.base.services.installments import get_max_installments_for_event
+from pretix.base.models import (
+    Event, Order, OrderPayment, OrderRefund, Organizer,
+)
+from pretix.base.services.installments import (
+    due_installments_queryset, get_max_installments_for_event,
+)
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
 
@@ -266,3 +270,102 @@ class TestEventDateLimitIsOnByDefault:
         event.date_from = now() + timedelta(days=365)
         event.save()
         assert get_max_installments_for_event(event) == 3
+
+
+@pytest.mark.django_db
+class TestRefundUnwindsThePlan:
+    """
+    Confirming an installment payment advances the plan; refunding it has to walk that
+    back, or the plan reports money it no longer holds.
+    """
+
+    def _paid_installment(self, order, plan, amount=Decimal('100.00')):
+        payment = order.payments.create(
+            state=OrderPayment.PAYMENT_STATE_CONFIRMED, provider='dummy',
+            amount=amount, payment_date=now(),
+        )
+        inst = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=amount,
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PAID,
+            payment=payment,
+        )
+        return payment, inst
+
+    @scopes_disabled()
+    def test_a_full_refund_decrements_the_counter(self, event, order, plan):
+        payment, inst = self._paid_installment(order, plan)
+        plan.installments_paid = 2
+        plan.save(update_fields=['installments_paid'])
+
+        refund = order.refunds.create(
+            state=OrderRefund.REFUND_STATE_CREATED, provider='dummy',
+            amount=payment.amount, payment=payment, source=OrderRefund.REFUND_SOURCE_BUYER,
+        )
+        refund.done()
+
+        inst.refresh_from_db()
+        plan.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_REFUNDED
+        assert plan.installments_paid == 1
+
+    @scopes_disabled()
+    def test_a_partial_refund_leaves_the_installment_paid(self, event, order, plan):
+        payment, inst = self._paid_installment(order, plan)
+        plan.installments_paid = 2
+        plan.save(update_fields=['installments_paid'])
+
+        refund = order.refunds.create(
+            state=OrderRefund.REFUND_STATE_CREATED, provider='dummy',
+            amount=Decimal('40.00'), payment=payment, source=OrderRefund.REFUND_SOURCE_BUYER,
+        )
+        refund.done()
+
+        inst.refresh_from_db()
+        plan.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_PAID
+        assert plan.installments_paid == 2
+
+    @scopes_disabled()
+    def test_a_refunded_installment_is_not_charged_again(self, event, order, plan):
+        """`refunded` is terminal: the processor must not treat it as collectable."""
+        payment, inst = self._paid_installment(order, plan)
+        refund = order.refunds.create(
+            state=OrderRefund.REFUND_STATE_CREATED, provider='dummy',
+            amount=payment.amount, payment=payment, source=OrderRefund.REFUND_SOURCE_BUYER,
+        )
+        refund.done()
+
+        assert not due_installments_queryset().filter(pk=inst.pk).exists()
+
+    @scopes_disabled()
+    def test_the_counter_never_goes_negative(self, event, order, plan):
+        payment, inst = self._paid_installment(order, plan)
+        plan.installments_paid = 0
+        plan.save(update_fields=['installments_paid'])
+
+        refund = order.refunds.create(
+            state=OrderRefund.REFUND_STATE_CREATED, provider='dummy',
+            amount=payment.amount, payment=payment, source=OrderRefund.REFUND_SOURCE_BUYER,
+        )
+        refund.done()
+
+        plan.refresh_from_db()
+        assert plan.installments_paid == 0
+
+    @scopes_disabled()
+    def test_a_refund_on_a_payment_with_no_installment_is_harmless(self, event, order, plan):
+        payment = order.payments.create(
+            state=OrderPayment.PAYMENT_STATE_CONFIRMED, provider='dummy',
+            amount=Decimal('50.00'), payment_date=now(),
+        )
+        plan.installments_paid = 2
+        plan.save(update_fields=['installments_paid'])
+
+        refund = order.refunds.create(
+            state=OrderRefund.REFUND_STATE_CREATED, provider='dummy',
+            amount=payment.amount, payment=payment, source=OrderRefund.REFUND_SOURCE_BUYER,
+        )
+        refund.done()
+
+        plan.refresh_from_db()
+        assert plan.installments_paid == 2

@@ -2333,6 +2333,18 @@ class OrderRefund(models.Model):
             self.payment.state = OrderPayment.PAYMENT_STATE_REFUNDED
             self.payment.save(update_fields=['state'])
 
+            # efcc: a fully refunded payment no longer settles the installment it paid for.
+            from pretix.efcc.models import ScheduledInstallment
+
+            installment = ScheduledInstallment.objects.filter(
+                payment=self.payment, state=ScheduledInstallment.STATE_PAID,
+            ).first()
+            if installment is not None:
+                installment.plan.record_refunded_payment()
+                ScheduledInstallment.objects.filter(pk=installment.pk).update(
+                    state=ScheduledInstallment.STATE_REFUNDED
+                )
+
     @property
     def full_id(self):
         """

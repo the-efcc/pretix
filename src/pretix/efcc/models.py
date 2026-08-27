@@ -143,6 +143,25 @@ class InstallmentPlan(models.Model):
         first = self.installments.filter(installment_number=1).first()
         return first.payment if first else None
 
+    @transaction.atomic
+    def record_refunded_payment(self):
+        """
+        Undo the bookkeeping for one installment whose payment has been refunded.
+
+        The counter has to come back down or the plan claims money it no longer holds,
+        and the control panel and API both report it. The plan's *status* is deliberately
+        left alone: a completed plan really did complete, and reopening it would leave an
+        active plan whose token has already been revoked -- which the processor would
+        read as an uncollectable plan and wind the order down over.
+        """
+        with scopes_disabled():
+            plan = InstallmentPlan.objects.select_for_update().get(pk=self.pk)
+        plan.installments_paid = max(plan.installments_paid - 1, 0)
+        plan.save(update_fields=['installments_paid'])
+        for field in self._meta.concrete_fields:
+            if not field.is_relation:
+                setattr(self, field.attname, getattr(plan, field.attname))
+
     def store_payment_token(self, token_data):
         """
         Store the payment token for this installment plan.
@@ -189,6 +208,7 @@ class ScheduledInstallment(models.Model):
     STATE_PAID = 'paid'
     STATE_FAILED = 'failed'
     STATE_CANCELLED = 'cancelled'
+    STATE_REFUNDED = 'refunded'
 
     STATE_CHOICES = (
         (STATE_PENDING, pgettext_lazy('installment_state', 'pending')),
@@ -196,6 +216,7 @@ class ScheduledInstallment(models.Model):
         (STATE_PAID, pgettext_lazy('installment_state', 'paid')),
         (STATE_FAILED, pgettext_lazy('installment_state', 'failed')),
         (STATE_CANCELLED, pgettext_lazy('installment_state', 'canceled')),
+        (STATE_REFUNDED, pgettext_lazy('installment_state', 'refunded')),
     )
 
     plan = models.ForeignKey(

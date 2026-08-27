@@ -1087,7 +1087,7 @@
                                                 <td>{{ inst.amount|money:request.event.currency }}</td>
                                                 <td>{{ inst.due_date|date:"SHORT_DATE_FORMAT" }}</td>
                                                 <td>
-                                                    <span class="label label-{% if inst.state == 'paid' %}success{% elif inst.state == 'failed' %}danger{% elif inst.state == 'cancelled' %}default{% else %}warning{% endif %}">
+                                                    <span class="label label-{% if inst.state == 'paid' %}success{% elif inst.state == 'failed' %}danger{% elif inst.state == 'cancelled' or inst.state == 'refunded' %}default{% else %}warning{% endif %}">
                                                         {{ inst.get_state_display }}
                                                     </span>
                                                 </td>
