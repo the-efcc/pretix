@@ -1103,6 +1103,11 @@ def _create_order(event: Event, *, email: str, positions: List[CartPosition], no
         other_payments = []
         for p in payment_requests:
             if p.get('pay_in_installments'):
+                if installment_payment is not None:
+                    # Keeping the last one and discarding the rest would silently drop a
+                    # payment that the total was calculated with, leaving the order short
+                    # by whatever that payment covered.
+                    raise OrderError(_('An order can only have one installment plan.'))
                 installment_payment = p
             else:
                 other_payments.append(p)

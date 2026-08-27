@@ -33,7 +33,9 @@ from pretix.base.models import (
 from pretix.base.services.installments import (
     calculate_installment_amounts, create_installment_plan,
 )
-from pretix.base.services.orders import _create_order, perform_order
+from pretix.base.services.orders import (
+    OrderError, _create_order, perform_order,
+)
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
 
@@ -479,6 +481,25 @@ class TestCreateOrderReturnsThePaymentsItCreated:
             assert len(payments) == len({p.pk for p in payments})
             assert {p.pk for p in payments} == set(order.payments.values_list('pk', flat=True))
             assert payments[1] == order.installment_plan.first_payment
+
+    def test_two_installment_requests_are_refused(self, event, cart_position):
+        """
+        Not reachable from the checkout UI, which allows one non-multi-use payment. But
+        keeping the last one and dropping the rest would leave the order short by whatever
+        the dropped payment covered, so it fails loudly instead.
+        """
+        event.settings.set('installments_enabled', True)
+        inst, _ = self._providers()
+        requests = [
+            {'provider': 'dummy', 'payment_amount': Decimal('0.00'), 'info_data': {},
+             'pay_in_installments': True, 'installments_count': 3, 'pprov': inst},
+            {'provider': 'dummy', 'payment_amount': Decimal('0.00'), 'info_data': {},
+             'pay_in_installments': True, 'installments_count': 2, 'pprov': inst},
+        ]
+
+        with scope(organizer=event.organizer):
+            with pytest.raises(OrderError, match='only have one installment plan'):
+                self._place(event, cart_position, requests, {'dummy': inst})
 
     def test_installments_on_their_own(self, event, cart_position):
         event.settings.set('installments_enabled', True)
