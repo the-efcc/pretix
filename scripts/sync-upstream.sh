@@ -20,6 +20,18 @@ set -euo pipefail
 
 tag="${1:?usage: $0 <release-tag>   e.g.: $0 v2026.7.0}"
 
+# The script moves between branches with `checkout -B`, which happily drags
+# uncommitted work along with it. Refuse to start rather than scatter it.
+if ! git diff --quiet || ! git diff --cached --quiet; then
+  echo "ERROR: you have uncommitted changes. Commit or stash them first." >&2
+  exit 1
+fi
+if [ -e "$(git rev-parse --git-dir)/MERGE_HEAD" ]; then
+  echo "ERROR: a merge is still in progress. Resolve the conflicts and commit," >&2
+  echo "then re-run this script." >&2
+  exit 1
+fi
+
 git fetch upstream master "refs/tags/$tag:refs/tags/$tag"
 git fetch origin master efcc
 
@@ -32,10 +44,25 @@ git push origin master
 
 # 2. Land the release on the product branch via a merge.
 #    If this conflicts, resolve, `git commit`, then re-run this script — the
-#    merge below turns into a no-op and step 3 still gets to run. Don't push
+#    merge turns into a no-op and step 3 still gets to run. Don't push
 #    by hand here, or you may push an efcc that cannot migrate.
-git checkout -B efcc origin/efcc
-git merge --no-edit "$tag"
+#
+#    That recovery only works if re-running keeps the resolved merge commit,
+#    which lives nowhere but this checkout until step 4 pushes it. So local
+#    efcc is only reset to the remote when it does not already contain it;
+#    if it is ahead, it is a resolution from a previous run and is kept.
+if git rev-parse --verify --quiet efcc >/dev/null &&
+   git merge-base --is-ancestor origin/efcc efcc; then
+  git checkout efcc
+else
+  git checkout -B efcc origin/efcc
+fi
+
+if git merge-base --is-ancestor "$tag" HEAD; then
+  echo "efcc already contains $tag — skipping the merge."
+else
+  git merge --no-edit "$tag"
+fi
 
 # 3. Repair the Django migration graph.
 #    We carry our own migrations in apps upstream also migrates (pretixbase),
