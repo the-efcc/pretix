@@ -145,6 +145,58 @@ class TestInstallmentRecovery(TestCase):
         assert response.status_code == 200
         assert 'payment_form_error' in response.context
 
+    def test_provider_error_text_is_not_shown_to_the_customer(self):
+        provider = self._mock_provider()
+        provider.payment_form_render.side_effect = Exception('AcquirerRef 0x81: token vault unreachable')
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
+            response = self.client.get(self._url())
+        assert response.status_code == 200
+        assert 'AcquirerRef' not in response.content.decode()
+        assert 'token vault' not in response.content.decode()
+
+    # -- The original failed charge is not lost by an abandoned recovery attempt --
+
+    @scopes_disabled()
+    def _with_original_failed_payment(self):
+        original = self.order.payments.create(
+            provider='dummy', amount=Decimal('100.00'),
+            state=OrderPayment.PAYMENT_STATE_FAILED,
+        )
+        self.installment.payment = original
+        self.installment.save(update_fields=['payment'])
+        return original
+
+    def test_abandoned_recovery_restores_the_original_failed_payment(self):
+        original = self._with_original_failed_payment()
+        provider = self._mock_provider(payment_prepare=False)
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
+            assert self.client.post(self._url()).status_code == 200
+
+        with scopes_disabled():
+            self.installment.refresh_from_db()
+            assert self.installment.payment == original
+            assert self.order.payments.count() == 1
+
+    def test_a_crashed_recovery_restores_the_original_failed_payment(self):
+        original = self._with_original_failed_payment()
+        provider = self._mock_provider()
+        provider.execute_payment.side_effect = RuntimeError('unexpected')
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
+            assert self.client.post(self._url()).status_code == 200
+
+        with scopes_disabled():
+            self.installment.refresh_from_db()
+            assert self.installment.payment == original
+
+    def test_abandoned_recovery_without_an_original_leaves_no_link(self):
+        provider = self._mock_provider(payment_prepare=False)
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
+            assert self.client.post(self._url()).status_code == 200
+
+        with scopes_disabled():
+            self.installment.refresh_from_db()
+            assert self.installment.payment is None
+
     # -- POST success --
 
     @scopes_disabled()

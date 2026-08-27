@@ -1852,8 +1852,15 @@ class OrderInstallmentRecovery(EventViewMixin, OrderDetailMixin, TemplateView):
             'payment': payment.pk,
         })
 
-    def _cleanup_recovery_payment(self, payment):
-        self.failed_installment.payment = None
+    def _cleanup_recovery_payment(self, payment, previous_payment_id):
+        """
+        Undo a recovery attempt that never got as far as charging anything.
+
+        The installment goes back to pointing at the charge that actually failed, not to
+        nothing: that payment is the record of why the customer is on this page, and it is
+        what the control panel shows the organizer.
+        """
+        self.failed_installment.payment_id = previous_payment_id
         self.failed_installment.save(update_fields=['payment'])
         payment.delete()
 
@@ -1870,9 +1877,12 @@ class OrderInstallmentRecovery(EventViewMixin, OrderDetailMixin, TemplateView):
                     self.failed_installment.amount,
                     order=self.order
                 )
-            except Exception as e:
+            except Exception:
+                # The message belongs in the log, not on a page a customer is reading:
+                # it is provider internals and they can do nothing with it.
                 logger.exception('Error rendering payment form')
-                ctx['payment_form_error'] = str(e)
+                ctx['payment_form_error'] = _('The payment form could not be loaded. '
+                                              'Please try again later.')
         else:
             ctx['payment_form_error'] = _('Payment provider not available')
 
@@ -1884,6 +1894,7 @@ class OrderInstallmentRecovery(EventViewMixin, OrderDetailMixin, TemplateView):
             return redirect(self.get_order_url())
 
         payment = None
+        previous_payment_id = self.failed_installment.payment_id
         try:
             payment = OrderPayment.objects.create(
                 order=self.order,
@@ -1897,7 +1908,7 @@ class OrderInstallmentRecovery(EventViewMixin, OrderDetailMixin, TemplateView):
 
             resp = self.provider.payment_prepare(request, payment)
             if resp is False:
-                self._cleanup_recovery_payment(payment)
+                self._cleanup_recovery_payment(payment, previous_payment_id)
                 messages.error(request, _('Please check your payment information and try again.'))
                 return self.get(request, *args, **kwargs)
 
@@ -1930,7 +1941,7 @@ class OrderInstallmentRecovery(EventViewMixin, OrderDetailMixin, TemplateView):
 
         except Exception:
             if payment and payment.state == OrderPayment.PAYMENT_STATE_CREATED:
-                self._cleanup_recovery_payment(payment)
+                self._cleanup_recovery_payment(payment, previous_payment_id)
             logger.exception('Unexpected error in installment recovery')
             messages.error(request, _('There was an error processing your request. Please try again.'))
             return self.get(request, *args, **kwargs)
