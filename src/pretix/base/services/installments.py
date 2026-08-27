@@ -235,6 +235,24 @@ def create_installment_plan(
 PROCESSING_LEASE = timedelta(hours=1)
 
 
+def start_grace_period(plan: InstallmentPlan, event) -> None:
+    """
+    Put a plan into its grace period after a failed charge, if it isn't already in one.
+
+    The grace period is what eventually ends a plan that cannot be collected:
+    :py:func:`send_grace_period_warnings` warns the customer, then
+    :py:func:`process_expired_plans` cancels. An installment order is excluded from
+    ``expire_orders`` precisely because its remaining payments are scheduled, so this is
+    the *only* thing that stops a plan running forever -- every failure path has to start
+    it, or the order becomes immortal and holds its quota indefinitely.
+    """
+    if plan.grace_period_end:
+        return
+    days = event.settings.get('installments_grace_period_days', as_type=int, default=7)
+    plan.grace_period_end = now() + timedelta(days=days)
+    plan.save(update_fields=['grace_period_end'])
+
+
 def claim_installment(installment: ScheduledInstallment) -> bool:
     """
     Take exclusive ownership of an installment before charging it.
@@ -325,6 +343,11 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
             installment.failure_reason = "No payment token available"
             installment.processed_at = now()
             installment.save(update_fields=['state', 'failure_reason', 'processed_at'])
+            # A missing token is a dead end -- there is nothing to retry with -- so this
+            # has to start the grace period like any other failure. Without it the plan
+            # sits ACTIVE forever, and because expire_orders skips orders with an active
+            # plan, so does the order.
+            start_grace_period(plan, event)
             return False
 
         # Build the payment up front so the provider can record what it needs to act
@@ -396,10 +419,7 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
             installment.state = ScheduledInstallment.STATE_FAILED
             installment.save(update_fields=['state'])
 
-            if not plan.grace_period_end:
-                days = event.settings.get('installments_grace_period_days', as_type=int, default=7)
-                plan.grace_period_end = now() + timedelta(days=days)
-                plan.save(update_fields=['grace_period_end'])
+            start_grace_period(plan, event)
 
             if send_mail:
                 with language(order.locale, event.settings.region):

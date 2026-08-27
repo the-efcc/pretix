@@ -596,6 +596,79 @@ class TestChargeSurvivesLaterFailures:
 
 
 @pytest.mark.django_db
+class TestAbandonedPlansWindDown:
+    """
+    An order with an active plan is excluded from expire_orders, so the grace period is
+    the only thing that ever ends it. A failure path that doesn't start one leaves the
+    order immortal, holding its quota for good.
+    """
+
+    def test_a_missing_token_starts_the_grace_period(self, event, order, plan):
+        plan.payment_token = {}
+        plan.save(update_fields=['payment_token'])
+        inst = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                assert process_single_installment(inst) is False
+
+        inst.refresh_from_db()
+        plan.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_FAILED
+        assert plan.grace_period_end is not None
+
+    def test_an_abandoned_checkout_eventually_cancels_the_order(self, event, order):
+        """
+        The customer never came back from the payment page: the checkout payment failed
+        and no token was ever stored. The plan has to wind down on its own.
+        """
+        provider = _mock_provider()
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                plan = create_installment_plan(order, 'dummy', installments_count=3)
+                order.payments.get().fail(send_mail=False)
+
+                process_due_installments()
+
+        plan.refresh_from_db()
+        assert plan.grace_period_end is not None
+
+        # Wind the clock past the grace period and let the sweep run.
+        plan.grace_period_end = now() - timedelta(minutes=1)
+        plan.save(update_fields=['grace_period_end'])
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                process_expired_plans()
+
+        plan.refresh_from_db()
+        order.refresh_from_db()
+        assert plan.status == InstallmentPlan.STATUS_CANCELLED
+        assert order.status == Order.STATUS_CANCELED
+
+    def test_the_grace_period_is_not_pushed_back_by_a_second_failure(self, event, order, plan):
+        plan.payment_token = {}
+        plan.save(update_fields=['payment_token'])
+        first_end = now() + timedelta(days=3)
+        plan.grace_period_end = first_end
+        plan.save(update_fields=['grace_period_end'])
+
+        inst = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                process_single_installment(inst)
+
+        plan.refresh_from_db()
+        assert plan.grace_period_end == first_end
+
+
+@pytest.mark.django_db
 class TestProcessExpiredPlans:
 
     def test_cancels_order_and_plan(self, event, order, plan):
