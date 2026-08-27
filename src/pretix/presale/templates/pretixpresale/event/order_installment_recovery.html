@@ -105,8 +105,8 @@
                 <dt>{% trans "Installments paid" %}</dt>
                 <dd>{{ installment_plan.installments_paid }}</dd>
 
-                <dt>{% trans "Amount per installment" %}</dt>
-                <dd>{{ installment_plan.amount_per_installment|money:event.currency }}</dd>
+                <dt>{% trans "Amount due now" %}</dt>
+                <dd>{{ failed_installment.amount|money:event.currency }}</dd>
             </dl>
         </div>
     </div>

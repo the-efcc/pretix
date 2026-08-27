@@ -145,9 +145,6 @@
                     <dt>{% trans "Installments paid" %}</dt>
                     <dd>{{ installment_plan.installments_paid }} {% trans "of" %} {{ installment_plan.total_installments }}</dd>
 
-                    <dt>{% trans "Amount per installment" %}</dt>
-                    <dd>{{ installment_plan.amount_per_installment|money:event.currency }}</dd>
-
                     {% if next_installment %}
                         <dt>{% trans "Next payment" %}</dt>
                         <dd>

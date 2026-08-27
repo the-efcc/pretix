@@ -378,6 +378,34 @@ class TestPaymentFeeIsChargedUpFront:
 
             assert order.installment_plan.first_payment.amount == preview
 
+    def test_amount_per_installment_is_the_recurring_amount(self, event, cart_position):
+        """
+        The stored figure is the recurring amount. The first installment carries the
+        payment fee and the last absorbs the rounding remainder, so it deliberately does
+        not describe either of them.
+        """
+        event.settings.set('installments_enabled', True)
+        provider = self._fee_provider(Decimal('3.00'))
+
+        payment_request = {
+            'provider': 'dummy', 'payment_amount': Decimal('0.00'), 'info_data': {},
+            'pay_in_installments': True, 'installments_count': 3,
+        }
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
+            result = perform_order(
+                event=event.id, payments=[payment_request], positions=[cart_position.id],
+                meta_info={}, email='test@example.com', locale='en',
+            )
+
+        with scope(organizer=event.organizer):
+            plan = Order.objects.get(pk=result['order_id']).installment_plan
+            scheduled = list(plan.installments.order_by('installment_number'))
+
+            assert plan.amount_per_installment == Decimal('33.33')
+            assert scheduled[1].amount == plan.amount_per_installment
+            assert scheduled[0].amount != plan.amount_per_installment  # carries the fee
+            assert scheduled[2].amount != plan.amount_per_installment  # carries the remainder
+
     def test_no_fee_leaves_the_split_untouched(self, event, cart_position):
         event.settings.set('installments_enabled', True)
         provider = self._fee_provider(Decimal('0.00'))

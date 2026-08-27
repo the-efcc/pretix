@@ -38,7 +38,10 @@ class InstallmentPlan(models.Model):
     :type total_installments: int
     :param installments_paid: Number of installments successfully paid
     :type installments_paid: int
-    :param amount_per_installment: The amount for each installment payment
+    :param amount_per_installment: The recurring installment amount. Not what every
+                                   installment costs: the first also carries the payment
+                                   fee and the last absorbs the rounding remainder, so
+                                   read the ScheduledInstallment rows for real figures.
     :type amount_per_installment: Decimal
     :param status: Current status of the installment plan
     :type status: str
@@ -89,7 +92,7 @@ class InstallmentPlan(models.Model):
     amount_per_installment = models.DecimalField(
         decimal_places=2,
         max_digits=13,
-        verbose_name=_("Amount per installment")
+        verbose_name=_("Recurring installment amount")
     )
     status = models.CharField(
         max_length=20,

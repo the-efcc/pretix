@@ -1063,8 +1063,6 @@
                                     <dd>{{ installment_plan.total_installments }}</dd>
                                     <dt>{% trans "Paid installments" %}</dt>
                                     <dd>{{ installment_plan.installments_paid }} / {{ installment_plan.total_installments }}</dd>
-                                    <dt>{% trans "Amount per installment" %}</dt>
-                                    <dd>{{ installment_plan.amount_per_installment|money:request.event.currency }}</dd>
                                     <dt>{% trans "Payment provider" %}</dt>
                                     <dd>{{ installment_plan.payment_provider }}</dd>
                                 </dl>
