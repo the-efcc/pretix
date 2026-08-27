@@ -263,7 +263,6 @@ def claim_installment(installment: ScheduledInstallment) -> bool:
     return True
 
 
-@transaction.atomic
 def process_single_installment(installment: ScheduledInstallment, send_mail: bool = False) -> bool:
     """
     Processes a single installment payment.
@@ -275,6 +274,15 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
 
     The installment is claimed first (see :py:func:`claim_installment`); if another run
     already owns it this returns ``False`` without charging anything.
+
+    Deliberately **not** wrapped in a transaction. Money leaves the customer's account
+    inside ``execute_installment``, and a transaction spanning that call means any later
+    failure rolls back the record of a charge that really happened -- leaving pretix with
+    no idea it took the money. So the payment row is committed before the provider is
+    called, and every step after the charge either manages its own transaction
+    (``confirm``, ``fail``) or is allowed to fail loudly without touching it. It also
+    keeps a database transaction from being held open for the length of a provider
+    round-trip.
 
     :param installment: The ScheduledInstallment to process
     :param send_mail: Whether to notify the customer — the failure notice on a
@@ -314,14 +322,17 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
         # Build the payment up front so the provider can record what it needs to act
         # on the charge later — a transaction ID to refund against, above all. It is
         # also what links the charge to the installment for OrderPayment.confirm().
-        payment = OrderPayment.objects.create(
-            order=order,
-            state=OrderPayment.PAYMENT_STATE_CREATED,
-            amount=installment.amount,
-            provider=plan.payment_provider,
-        )
-        installment.payment = payment
-        installment.save(update_fields=['payment'])
+        # This is committed before the charge, so that a crash mid-charge still leaves
+        # evidence that we asked the provider for money.
+        with transaction.atomic():
+            payment = OrderPayment.objects.create(
+                order=order,
+                state=OrderPayment.PAYMENT_STATE_CREATED,
+                amount=installment.amount,
+                provider=plan.payment_provider,
+            )
+            installment.payment = payment
+            installment.save(update_fields=['payment'])
 
         success = False
         try:
@@ -342,6 +353,15 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
                     "Installment %s for order %s was charged but the order could not be "
                     "marked as paid because quota is exhausted.",
                     installment.pk, order.code,
+                )
+            except Exception:
+                # Same again, for anything else: the charge happened and the payment row
+                # survives it, so this needs a human rather than a retry -- retrying would
+                # charge the customer a second time.
+                logger.exception(
+                    "Installment %s for order %s was charged but payment %s could not be "
+                    "confirmed. The charge is recorded and needs to be settled by hand.",
+                    installment.pk, order.code, payment.full_id,
                 )
 
             installment.refresh_from_db()
@@ -575,10 +595,13 @@ def send_grace_period_warnings():
                 )
 
 
-@transaction.atomic
 def cancel_installment_plan(plan: InstallmentPlan, cancel_order: bool = False, user=None, log: bool = True, send_mail: bool = True):
     """
     Cancels an installment plan.
+
+    Revoking the token at the provider is a network call, and is kept outside the
+    transaction that records the cancellation so that a slow provider does not hold a
+    database transaction open for the length of its round-trip.
 
     :param plan: The InstallmentPlan to cancel
     :param cancel_order: Whether to also cancel the order
@@ -602,21 +625,26 @@ def cancel_installment_plan(plan: InstallmentPlan, cancel_order: bool = False, u
                     "Failed to revoke payment token for cancelled plan %s", plan.pk,
                 )
 
-        plan.status = InstallmentPlan.STATUS_CANCELLED
-        plan.payment_token = {}
-        plan.save(update_fields=['status', 'payment_token'])
+        with transaction.atomic():
+            plan.status = InstallmentPlan.STATUS_CANCELLED
+            plan.payment_token = {}
+            plan.save(update_fields=['status', 'payment_token'])
 
-        ScheduledInstallment.objects.filter(
-            plan=plan,
-            state__in=[ScheduledInstallment.STATE_PENDING, ScheduledInstallment.STATE_FAILED]
-        ).update(state=ScheduledInstallment.STATE_CANCELLED)
+            ScheduledInstallment.objects.filter(
+                plan=plan,
+                state__in=[
+                    ScheduledInstallment.STATE_PENDING,
+                    ScheduledInstallment.STATE_PROCESSING,
+                    ScheduledInstallment.STATE_FAILED,
+                ]
+            ).update(state=ScheduledInstallment.STATE_CANCELLED)
 
-        if log:
-            order.log_action(
-                'pretix.event.order.installment_plan.canceled',
-                data={'installment_plan_id': plan.pk},
-                user=user
-            )
+            if log:
+                order.log_action(
+                    'pretix.event.order.installment_plan.canceled',
+                    data={'installment_plan_id': plan.pk},
+                    user=user
+                )
 
         if cancel_order:
             from pretix.base.services.orders import (
