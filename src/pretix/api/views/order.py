@@ -1070,6 +1070,10 @@ class EventOrderViewSet(OrderViewSetMixin, viewsets.ModelViewSet):
         Get or cancel the installment plan for an order.
         GET: Returns plan data or 404 if the order has no installment plan.
         DELETE: Cancels the plan. Optionally cancels order with ?cancel_order=true.
+
+        ``amount_per_installment`` is the recurring amount, not what every installment
+        costs -- the first carries the payment fee and the last absorbs the rounding
+        remainder. Use the installments endpoint for the real per-installment figures.
         """
         order = self.get_object()
 
