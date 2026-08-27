@@ -35,7 +35,9 @@ from django_scopes import scopes_disabled
 from pretix.base.email import get_email_context
 from pretix.base.i18n import LazyCurrencyNumber, language
 from pretix.base.models import Order, OrderFee, OrderPayment, Quota
-from pretix.base.signals import order_canceled, periodic_task
+from pretix.base.signals import (
+    order_canceled, order_valid_if_pending, periodic_task,
+)
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 from pretix.helpers.periodic import minimum_interval
 from pretix.multidomain.urlreverse import eventreverse_absolute
@@ -701,6 +703,21 @@ def cancel_installment_plan(plan: InstallmentPlan, cancel_order: bool = False, u
                 cancel_order as cancel_order_service,
             )
             cancel_order_service(order.pk, user=user.pk if user else None, send_mail=send_mail)
+
+
+@receiver(order_valid_if_pending, dispatch_uid="efcc_order_valid_if_pending_by_installments")
+def order_valid_if_pending_by_installments(sender, payments=None, **kwargs):
+    """
+    Mark an order paid in installments as valid while it is still pending.
+
+    A plan only settles the order once its final installment is collected, so
+    without this the tickets of every installment order would stay invalid for
+    the whole term of the plan -- which is the entire point of offering one.
+    Choosing installments is therefore the promise to pay that makes the order
+    valid, the same way ``Voucher.valid_if_pending`` or a payment provider's
+    ``_valid_if_pending`` setting is for an order paid in one go.
+    """
+    return any(p.get('pay_in_installments') for p in (payments or []))
 
 
 @receiver(signal=order_canceled)
