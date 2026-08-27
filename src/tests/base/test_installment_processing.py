@@ -669,6 +669,71 @@ class TestAbandonedPlansWindDown:
 
 
 @pytest.mark.django_db
+class TestProcessorRespectsPlanAndOrderState:
+    """
+    Cancelling an order cancels its installments through the order_canceled receiver, but
+    that is not the only way an order stops expecting money.
+    """
+
+    def _due(self, plan):
+        return ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+
+    def _run(self, event, provider):
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                process_due_installments()
+
+    def test_an_expired_order_is_not_charged(self, event, order, plan):
+        inst = self._due(plan)
+        order.status = Order.STATUS_EXPIRED
+        order.save(update_fields=['status'])
+        provider = _mock_provider()
+
+        self._run(event, provider)
+
+        inst.refresh_from_db()
+        assert provider.execute_installment.call_count == 0
+        assert inst.state == ScheduledInstallment.STATE_PENDING
+
+    def test_a_canceled_order_is_not_charged(self, event, order, plan):
+        inst = self._due(plan)
+        order.status = Order.STATUS_CANCELED
+        order.save(update_fields=['status'])
+        provider = _mock_provider()
+
+        self._run(event, provider)
+
+        assert provider.execute_installment.call_count == 0
+        inst.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_PENDING
+
+    def test_a_cancelled_plan_is_not_charged(self, event, order, plan):
+        inst = self._due(plan)
+        plan.status = InstallmentPlan.STATUS_CANCELLED
+        plan.save(update_fields=['status'])
+        provider = _mock_provider()
+
+        self._run(event, provider)
+
+        assert provider.execute_installment.call_count == 0
+        inst.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_PENDING
+
+    def test_a_pending_order_on_an_active_plan_is_charged(self, event, order, plan):
+        inst = self._due(plan)
+        provider = _mock_provider()
+
+        self._run(event, provider)
+
+        inst.refresh_from_db()
+        assert provider.execute_installment.call_count == 1
+        assert inst.state == ScheduledInstallment.STATE_PAID
+
+
+@pytest.mark.django_db
 class TestProcessExpiredPlans:
 
     def test_cancels_order_and_plan(self, event, order, plan):
