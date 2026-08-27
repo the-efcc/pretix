@@ -107,6 +107,10 @@ def test_installments_available_uses_event_settings(event):
     event.settings.set('installments_enabled', True)
     event.settings.set('installments_count', 4)
     event.settings.set('installments_min_order_value', Decimal('50.00'))
+    # The shared fixture dates the event today; installments_limit_by_event_date is on by
+    # default, and a plan cannot outrun an event that has already started.
+    event.date_from = now() + datetime.timedelta(days=365)
+    event.save(update_fields=['date_from'])
 
     prov = InstallmentDummyPaymentProvider(event)
 
