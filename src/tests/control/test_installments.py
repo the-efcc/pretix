@@ -28,8 +28,9 @@ from django.utils.timezone import now
 from django_scopes import scope
 
 from pretix.base.models import (
-    Event, Item, Order, OrderPosition, Organizer, Team, User,
+    Event, Item, Order, OrderPayment, OrderPosition, Organizer, Team, User,
 )
+from pretix.base.services.installments import process_expired_plans
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
 
@@ -324,3 +325,65 @@ class TestPaymentSettingsWarning:
         assert r.status_code == 200
         assert r.context['installments_have_no_provider'] is False
         assert 'will have no effect' not in r.content.decode()
+
+
+@pytest.mark.django_db
+class TestCancelledPlanIsVisibleToTheOrganizer:
+    """
+    A grace-period cancellation deliberately refunds nothing and tells the customer to get
+    in touch. That only works if the organizer can find the order when they do, so the
+    money showing up in pretix's own overpaid handling is load-bearing here, not incidental.
+    """
+
+    def _expired_plan(self, event, paid=Decimal('200.00')):
+        with scope(organizer=event.organizer):
+            order = Order.objects.create(
+                code='EXPIRED', event=event, email='t@example.com',
+                status=Order.STATUS_PENDING, datetime=now(),
+                expires=now() + timedelta(days=10), total=Decimal('300.00'), locale='en',
+                sales_channel=event.organizer.sales_channels.get(identifier='web'),
+            )
+            item = Item.objects.create(event=event, name='Ticket', default_price=Decimal('300.00'))
+            OrderPosition.objects.create(order=order, item=item, price=Decimal('300.00'), positionid=1)
+            plan = InstallmentPlan.objects.create(
+                order=order, payment_provider='dummy', payment_token={'token': 't'},
+                total_installments=3, installments_paid=2,
+                amount_per_installment=Decimal('100.00'),
+                status=InstallmentPlan.STATUS_ACTIVE,
+                grace_period_end=now() - timedelta(days=1),
+            )
+            order.payments.create(
+                state=OrderPayment.PAYMENT_STATE_CONFIRMED, provider='dummy',
+                amount=paid, payment_date=now(),
+            )
+            with _patch_providers(_mock_provider()):
+                process_expired_plans()
+            order.refresh_from_db()
+            plan.refresh_from_db()
+        return order, plan
+
+    def test_the_order_is_cancelled_and_still_holds_the_money(self, event):
+        order, plan = self._expired_plan(event)
+        with scope(organizer=event.organizer):
+            assert order.status == Order.STATUS_CANCELED
+            assert plan.status == InstallmentPlan.STATUS_CANCELLED
+            assert order.refunds.count() == 0
+            assert order.payment_refund_sum == Decimal('200.00')
+
+    def test_the_order_page_flags_it_as_overpaid(self, staff_client, event):
+        order, _ = self._expired_plan(event)
+        r = staff_client.get(_order_url(order))
+        content = r.content.decode()
+
+        assert r.status_code == 200
+        assert r.context['overpaid'] == Decimal('200.00')
+        assert 'is currently overpaid by' in content
+        assert 'Initiate a refund of' in content
+
+    def test_the_overpaid_filter_finds_it(self, staff_client, event):
+        order, _ = self._expired_plan(event)
+        with scope(organizer=event.organizer):
+            qs = Order.annotate_overpayments(
+                Order.objects.filter(event=event), refunds=False, results=True, sums=False,
+            ).filter(is_overpaid=True)
+            assert list(qs.values_list('code', flat=True)) == [order.code]
