@@ -682,6 +682,14 @@ class PaymentSettings(WritePermissionMixin, EventSettingsViewMixin, EventSetting
                 p.show_enabled = p.settings._enabled in (True, 'True')
             if self.request.GET.get('highlight') and getattr(get_defining_app(p), 'name', None) == self.request.GET.get('highlight'):
                 p.highlight = True
+
+        # Installments only ever appear at checkout if some provider implements them, and
+        # nothing on this page says so -- without this an organizer can switch them on,
+        # save, and watch nothing happen.
+        context['installments_have_no_provider'] = not any(
+            getattr(p, 'installments_supported', False)
+            for p in self.request.event.get_payment_providers().values()
+        )
         return context
 
 
