@@ -525,6 +525,77 @@ class TestInstallmentClaiming:
 
 
 @pytest.mark.django_db
+class TestChargeSurvivesLaterFailures:
+    """
+    Money leaves the customer inside execute_installment. Nothing that happens afterwards
+    is allowed to erase the record of it -- a rolled-back payment row means pretix has no
+    idea it took the money.
+    """
+
+    def _pending(self, plan):
+        return ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+
+    @pytest.mark.django_db(transaction=True)
+    def test_the_payment_survives_a_confirm_that_blows_up(self, event, order, plan):
+        # transaction=True so the test sees real commit boundaries: wrapped in the usual
+        # test transaction, a rollback of the payment row would be invisible here.
+        inst = self._pending(plan)
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                with patch.object(OrderPayment, 'confirm', side_effect=RuntimeError('boom')):
+                    assert process_single_installment(inst) is True
+
+        with scope(organizer=event.organizer):
+            inst.refresh_from_db()
+            assert order.payments.count() == 1
+            payment = order.payments.get()
+            assert payment.amount == Decimal('100.00')
+            assert inst.payment == payment
+
+    def test_the_payment_exists_before_the_provider_is_called(self, event, order, plan):
+        """The provider is handed a payment that is already committed, not one in limbo."""
+        inst = self._pending(plan)
+        seen = {}
+
+        def _execute(plan_, installment_, payment_):
+            # A separate connection would see this row; within the test we can at least
+            # assert it has been written and carries the installment link.
+            seen['pk'] = payment_.pk
+            seen['linked'] = ScheduledInstallment.objects.get(pk=installment_.pk).payment_id
+            return True
+
+        provider = _mock_provider()
+        provider.execute_installment.side_effect = _execute
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                process_single_installment(inst)
+
+        assert seen['pk'] is not None
+        assert seen['linked'] == seen['pk']
+
+    def test_a_provider_that_raises_is_treated_as_a_decline(self, event, order, plan):
+        inst = self._pending(plan)
+        provider = _mock_provider()
+        provider.execute_installment.side_effect = RuntimeError('network gone')
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                assert process_single_installment(inst) is False
+
+        with scope(organizer=event.organizer):
+            inst.refresh_from_db()
+            plan.refresh_from_db()
+            assert inst.state == ScheduledInstallment.STATE_FAILED
+            assert order.payments.get().state == OrderPayment.PAYMENT_STATE_FAILED
+            assert plan.grace_period_end is not None
+
+
+@pytest.mark.django_db
 class TestProcessExpiredPlans:
 
     def test_cancels_order_and_plan(self, event, order, plan):
