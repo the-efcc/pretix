@@ -86,7 +86,7 @@ def plan(order):
     )
 
 
-def _mock_provider(execute_result=True, grace_period_days=7, reminder_days=3, info_data=None):
+def _mock_provider(execute_result=True, grace_period_days=7, info_data=None):
     p = MagicMock()
     p.installments_supported = True
 
@@ -869,32 +869,35 @@ class TestOrderCancellation:
 class TestInstallmentReminders:
 
     def test_sends_reminder(self, event, order, plan):
+        event.settings.installments_reminder_days = 3
         ScheduledInstallment.objects.create(
             plan=plan, installment_number=2, amount=Decimal('100.00'),
             due_date=now() + timedelta(days=3), state=ScheduledInstallment.STATE_PENDING,
         )
         mail.outbox = []
 
-        with _patch_providers(_mock_provider(reminder_days=3)):
+        with _patch_providers(_mock_provider()):
             with scope(organizer=event.organizer):
                 send_installment_reminders()
 
         assert len(mail.outbox) == 1
 
     def test_no_reminder_when_too_early(self, event, order, plan):
+        event.settings.installments_reminder_days = 3
         ScheduledInstallment.objects.create(
             plan=plan, installment_number=2, amount=Decimal('100.00'),
             due_date=now() + timedelta(days=10), state=ScheduledInstallment.STATE_PENDING,
         )
         mail.outbox = []
 
-        with _patch_providers(_mock_provider(reminder_days=3)):
+        with _patch_providers(_mock_provider()):
             with scope(organizer=event.organizer):
                 send_installment_reminders()
 
         assert len(mail.outbox) == 0
 
     def test_no_duplicate_reminder(self, event, order, plan):
+        event.settings.installments_reminder_days = 3
         ScheduledInstallment.objects.create(
             plan=plan, installment_number=2, amount=Decimal('100.00'),
             due_date=now() + timedelta(days=3), state=ScheduledInstallment.STATE_PENDING,
@@ -902,11 +905,36 @@ class TestInstallmentReminders:
         )
         mail.outbox = []
 
-        with _patch_providers(_mock_provider(reminder_days=3)):
+        with _patch_providers(_mock_provider()):
             with scope(organizer=event.organizer):
                 send_installment_reminders()
 
         assert len(mail.outbox) == 0
+
+    def test_no_reminder_unless_configured(self, event, order, plan):
+        # Reminders are off until the event asks for them, and an installment passed
+        # over while they are off is not marked as reminded -- switching them on later
+        # still reminds about it.
+        inst = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() + timedelta(days=3), state=ScheduledInstallment.STATE_PENDING,
+        )
+        mail.outbox = []
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                send_installment_reminders()
+
+        assert len(mail.outbox) == 0
+        inst.refresh_from_db()
+        assert inst.reminder_sent is False
+
+        event.settings.installments_reminder_days = 3
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                send_installment_reminders()
+
+        assert len(mail.outbox) == 1
 
 
 @pytest.mark.django_db

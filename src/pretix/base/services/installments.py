@@ -554,6 +554,10 @@ def process_expired_plans():
 def send_installment_reminders():
     """
     Sends reminder emails for upcoming installments.
+
+    An event that leaves ``installments_reminder_days`` empty wants no reminders,
+    and its installments are skipped without ever being marked as reminded -- so
+    filling the setting in later still reminds about the ones still pending.
     """
     with scopes_disabled():
         qs = ScheduledInstallment.objects.filter(
@@ -571,7 +575,9 @@ def send_installment_reminders():
         if not provider:
             continue
 
-        days = event.settings.get('installments_reminder_days', as_type=int, default=3)
+        days = event.settings.get('installments_reminder_days', as_type=int)
+        if not days:
+            continue
 
         if now() >= installment.due_date - timedelta(days=days):
             with language(order.locale, event.settings.region):
