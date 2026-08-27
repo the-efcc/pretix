@@ -29,6 +29,7 @@ from django_scopes import scopes_disabled
 from tests.testdummy.payment import DummyPaymentProvider
 
 from pretix.base.models import Event, Order, OrderPayment, Organizer
+from pretix.base.services.installments import get_max_installments_for_event
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
 
@@ -43,7 +44,7 @@ def event(organizer):
         organizer=organizer,
         name='Dummy Event',
         slug='dummy',
-        date_from=now(),
+        date_from=now() + timedelta(days=365),
     )
 
 
@@ -236,3 +237,32 @@ class TestPaymentProviderInstallmentInterface:
     def test_revoke_payment_token_raises_not_implemented(self, event, plan):
         with pytest.raises(NotImplementedError):
             DummyPaymentProvider(event).revoke_payment_token(plan)
+
+
+@pytest.mark.django_db
+class TestEventDateLimitIsOnByDefault:
+    """
+    An installment plan whose payments fall due after the event has happened is nobody's
+    intent, so the limit is on unless an organizer deliberately turns it off.
+    """
+
+    def test_default_caps_installments_at_the_event_date(self, event):
+        event.date_from = now() + timedelta(days=70)  # a bit over two months out
+        event.save()
+        assert get_max_installments_for_event(event) == 2
+
+    def test_an_event_today_allows_no_installments(self, event):
+        event.date_from = now()
+        event.save()
+        assert get_max_installments_for_event(event) == 0
+
+    def test_turning_the_limit_off_restores_the_flat_maximum(self, event):
+        event.date_from = now()
+        event.save()
+        event.settings.set('installments_limit_by_event_date', False)
+        assert get_max_installments_for_event(event) == 3
+
+    def test_a_distant_event_is_capped_by_the_configured_maximum(self, event):
+        event.date_from = now() + timedelta(days=365)
+        event.save()
+        assert get_max_installments_for_event(event) == 3

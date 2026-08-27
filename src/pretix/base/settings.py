@@ -1114,7 +1114,9 @@ DEFAULTS = {
             label=_('Enable installment payments'),
             help_text=_(
                 'Allow customers to pay in monthly installments. This will only be offered if you also enable at '
-                'least one payment provider that supports installments.'
+                'least one payment provider that supports installments. Note that an order paid in installments '
+                'stays pending until the final installment is collected, so its tickets are only valid before then '
+                'if you also enable "Confirm order regardless of payment" on that payment provider.'
             ),
         )
     },
@@ -1190,14 +1192,16 @@ DEFAULTS = {
         ),
     },
     'installments_limit_by_event_date': {
-        'default': 'False',
+        'default': 'True',
         'type': bool,
         'form_class': forms.BooleanField,
         'serializer_class': serializers.BooleanField,
         'write_permission': 'event.settings.payment:write',
         'form_kwargs': dict(
             label=_('Limit by event date'),
-            help_text=_('Reduce the maximum number of installments based on how close the event date is'),
+            help_text=_('Reduce the maximum number of installments so that the plan finishes before the event '
+                        'starts. Turning this off means a ticket bought shortly before the event can still have '
+                        'installments falling due after it has taken place.'),
         )
     },
     'payment_giftcard__enabled': {

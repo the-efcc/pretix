@@ -50,7 +50,7 @@ def event():
             organizer=o,
             name='Dummy Event',
             slug='dummy',
-            date_from=now(),
+            date_from=now() + timedelta(days=365),
         )
         yield event
 
