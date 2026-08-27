@@ -11,7 +11,10 @@ function init_installment_filtering() {
     var syncInstallmentMode = function () {
         var useInstallments = installmentToggle.checked;
         var firstVisibleRadio = null;
-        var checkedVisibleRadio = null;
+        // Only true if hiding a panel took away a choice the customer had already made.
+        // Picking a provider for someone who has not picked one is not this script's job:
+        // doing it on page load silently pre-selects a payment method they never chose.
+        var clearedTheirChoice = false;
 
         countGroup.hidden = !useInstallments;
         countSelect.disabled = !useInstallments;
@@ -28,16 +31,13 @@ function init_installment_filtering() {
                 firstVisibleRadio = radio;
             }
 
-            if (radio && radio.checked && shouldShow) {
-                checkedVisibleRadio = radio;
-            }
-
             if (radio && radio.checked && !shouldShow) {
                 radio.checked = false;
+                clearedTheirChoice = true;
             }
         });
 
-        if (!checkedVisibleRadio && firstVisibleRadio) {
+        if (clearedTheirChoice && firstVisibleRadio) {
             firstVisibleRadio.checked = true;
         }
     };
