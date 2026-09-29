@@ -33,7 +33,9 @@ from django.utils.timezone import now
 from django_scopes import scopes_disabled
 
 from pretix.base.email import get_email_context
-from pretix.base.i18n import LazyCurrencyNumber, language
+from pretix.base.i18n import (
+    LazyCurrencyNumber, LazyDate, LazyExpiresDate, language,
+)
 from pretix.base.models import Order, OrderFee, OrderPayment, Quota
 from pretix.base.signals import (
     order_canceled, order_valid_if_pending, periodic_task,
@@ -428,7 +430,7 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
                     context = get_email_context(event=event, order=order)
                     context.update({
                         'failure_reason': installment.failure_reason or '',
-                        'expire_date': plan.grace_period_end,
+                        'expire_date': LazyExpiresDate(plan.grace_period_end.astimezone(event.timezone)),
                         'url': eventreverse_absolute(
                             event, 'presale:event.order.installment.recovery',
                             kwargs={'order': order.code, 'secret': order.secret}
@@ -588,8 +590,10 @@ def send_installment_reminders():
 
                 context = get_email_context(event=event, order=order)
                 context.update({
-                    'amount': installment.amount,
-                    'date': installment.due_date,
+                    'amount': LazyCurrencyNumber(installment.amount, event.currency),
+                    # Installments are charged by a periodic task, not at a set time of
+                    # day, so the time part of due_date means nothing to the customer.
+                    'date': LazyDate(installment.due_date.astimezone(event.timezone)),
                     'installment_number': installment.installment_number,
                 })
 
@@ -630,7 +634,7 @@ def send_grace_period_warnings():
 
             context = get_email_context(event=event, order=order)
             context.update({
-                'expire_date': plan.grace_period_end,
+                'expire_date': LazyExpiresDate(plan.grace_period_end.astimezone(event.timezone)),
             })
 
             try:

@@ -26,6 +26,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 from django.core import mail
 from django.core.management import call_command
+from django.utils.formats import date_format
 from django.utils.timezone import now
 from django_scopes import scope
 
@@ -39,6 +40,7 @@ from pretix.base.services.installments import (
     send_installment_reminders,
 )
 from pretix.base.services.orders import cancel_order
+from pretix.base.templatetags.money import money_filter
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
 
@@ -882,6 +884,25 @@ class TestInstallmentReminders:
 
         assert len(mail.outbox) == 1
 
+    def test_reminder_formats_amount_and_due_date(self, event, order, plan):
+        event.settings.installments_reminder_days = 3
+        due = now() + timedelta(days=3)
+        ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=due, state=ScheduledInstallment.STATE_PENDING,
+        )
+        mail.outbox = []
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                send_installment_reminders()
+
+        body = mail.outbox[0].body
+        assert money_filter(Decimal('100.00'), event.currency) in body
+        assert date_format(due.astimezone(event.timezone), 'SHORT_DATE_FORMAT') in body
+        assert str(due) not in body
+        assert due.astimezone(event.timezone).strftime('%H:%M') not in body
+
     def test_no_reminder_when_too_early(self, event, order, plan):
         event.settings.installments_reminder_days = 3
         ScheduledInstallment.objects.create(
@@ -972,3 +993,18 @@ class TestGracePeriodWarnings:
             send_grace_period_warnings()
 
         assert len(mail.outbox) == 0
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize('action_type', [
+    'pretix.event.order.installment_plan.canceled',
+    'pretix.event.order.installment.reminder',
+    'pretix.event.order.installment.failed',
+    'pretix.event.order.installment.grace_warning',
+    'pretix.event.order.installment.cancelled',
+])
+def test_installment_log_entries_are_displayed_as_sentences(event, order, action_type):
+    with scope(organizer=event.organizer):
+        order.log_action(action_type)
+        logentry = order.all_logentries().get(action_type=action_type)
+        assert logentry.display() != action_type
