@@ -591,6 +591,21 @@ class CoreOrderLogEntryType(OrderLogEntryType):
 
 
 @log_entry_types.new_from_dict({
+    'pretix.event.order.installment_plan.canceled': _('The installment plan has been canceled.'),
+    'pretix.event.order.installment.reminder': _('An email has been sent with a reminder that an installment '
+                                                 'payment is due soon.'),
+    'pretix.event.order.installment.failed': _('An email has been sent to notify the user that an installment '
+                                               'payment failed.'),
+    'pretix.event.order.installment.grace_warning': _('An email has been sent with a warning that the order is '
+                                                      'about to be canceled because of an unpaid installment.'),
+    'pretix.event.order.installment.cancelled': _('An email has been sent to notify the user that the order has '
+                                                  'been canceled because of an unpaid installment.'),
+})
+class InstallmentOrderLogEntryType(OrderLogEntryType):
+    pass
+
+
+@log_entry_types.new_from_dict({
     'pretix.voucher.added': _('The voucher has been created.'),
     'pretix.voucher.sent': _('The voucher has been sent to {recipient}.'),
     'pretix.voucher.expired.waitinglist': _(
