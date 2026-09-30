@@ -591,8 +591,6 @@ def send_installment_reminders():
                 context = get_email_context(event=event, order=order)
                 context.update({
                     'amount': LazyCurrencyNumber(installment.amount, event.currency),
-                    # Installments are charged by a periodic task, not at a set time of
-                    # day, so the time part of due_date means nothing to the customer.
                     'date': LazyDate(installment.due_date.astimezone(event.timezone)),
                     'installment_number': installment.installment_number,
                 })
