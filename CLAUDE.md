@@ -51,12 +51,6 @@ both. Neither branch is ever force-pushed, so open PRs are never disturbed by
 a sync. It needs `devenv` on PATH for the migration step, and refuses to push
 `efcc` without it.
 
-> **One-time note:** `efcc` carries a downgrade commit (`a0504e1c5`) that
-> pinned its tree back to v2026.6.0 while its history already contained newer
-> upstream commits. Before merging the next release tag, revert it
-> (`git revert a0504e1c5`) — `sync-upstream.sh` refuses to run until then.
-> Remove this note and the script guard once that's done.
-
 If the merge into `efcc` conflicts, resolve the conflicts, commit, and re-run
 the script — the merge becomes a no-op and the migration step still runs.
 Don't push `efcc` by hand, or you may publish a tree that cannot migrate.
