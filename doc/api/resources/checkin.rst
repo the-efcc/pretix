@@ -53,6 +53,8 @@ Checking a ticket in
                                     Defaults to ``false`` in which case the server will determine the language (currently
                                     the event default language, might change in the future with support for the
                                     ``Accept-Language`` header).
+   :<json boolean simulate: Do not actually perform the check-in, only simulate the response. The ``position`` response
+                            object will not reflect the simulated changes.
    :>json string status: ``"ok"``, ``"incomplete"``, ``"exchange"``, or ``"error"``
    :>json string reason: Reason code, only set on status ``"error"``, see below for possible values.
    :>json string reason_explanation: Human-readable explanation, only set on status ``"error"`` and reason ``"rules"``, can be null.

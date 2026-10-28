@@ -159,6 +159,7 @@ Erstattungsstatus
 Erstattungsweg
 erstmalig
 etc
+EU-USt-ID
 EU-USt-ID-Nr
 Event
 Event-Absage
@@ -293,6 +294,7 @@ Pago
 parsen
 Pay
 PayPal
+PayPals
 PayPal-Account
 PayPal-Accounts
 PayPal-Konto
@@ -340,6 +342,7 @@ pretix-Kontos
 pretix-Logo
 pretix-Logos
 pretix-Plugins
+pretixPOS
 pretixPRINT
 pretixPRINT-Version
 pretixSCAN

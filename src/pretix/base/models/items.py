@@ -50,7 +50,7 @@ from dateutil.tz import datetime_exists
 from django.conf import settings
 from django.core.exceptions import ValidationError
 from django.core.validators import (
-    MaxLengthValidator, MinValueValidator, RegexValidator,
+    MaxLengthValidator, MinLengthValidator, MinValueValidator, RegexValidator,
 )
 from django.db import models
 from django.db.models import Q
@@ -1050,10 +1050,8 @@ class Item(LoggedModel):
 
                 replace_year = valid_until.year
                 replace_month = valid_until.month + self.validity_dynamic_duration_months
-
-                while replace_month > 12:
-                    replace_month -= 12
-                    replace_year += 1
+                replace_year += (replace_month - 1) // 12
+                replace_month = ((replace_month - 1) % 12) + 1
                 max_day = calendar.monthrange(replace_year, replace_month)[1]
                 replace_date = date(
                     year=replace_year,
@@ -1606,6 +1604,9 @@ class Question(LoggedModel):
     :param dependency_values: The values that `dependency_question` needs to be set to for this question to be applicable.
     :type dependency_values: list[str]
     """
+    class ContainerType(models.TextChoices):
+        ORDER = "O", _("Order")
+        ORDERPOSITION = "P", _("Order position")
     TYPE_NUMBER = "N"
     TYPE_STRING = "S"
     TYPE_TEXT = "T"
@@ -1640,6 +1641,12 @@ class Question(LoggedModel):
         Event,
         related_name="questions",
         on_delete=models.CASCADE
+    )
+    container_type = models.CharField(
+        max_length=5,
+        choices=ContainerType.choices,
+        verbose_name=_("Asked on"),
+        default=ContainerType.ORDERPOSITION,
     )
     question = I18nTextField(
         verbose_name=_("Question")
@@ -1722,6 +1729,11 @@ class Question(LoggedModel):
     valid_datetime_max = models.DateTimeField(null=True, blank=True,
                                               verbose_name=_('Maximum value'),
                                               help_text=_('Currently not supported in our apps and during check-in'))
+    valid_string_length_min = models.PositiveIntegerField(null=True, blank=True,
+                                                          verbose_name=_('Minimum length'),
+                                                          help_text=_(
+                                                              'Currently not supported in our apps and during check-in'
+                                                          ))
     valid_string_length_max = models.PositiveIntegerField(null=True, blank=True,
                                                           verbose_name=_('Maximum length'),
                                                           help_text=_(
@@ -1876,6 +1888,11 @@ class Question(LoggedModel):
             else:
                 raise ValidationError(_('Unknown country code.'))
         elif self.type in (Question.TYPE_STRING, Question.TYPE_TEXT):
+            if self.valid_string_length_min is not None and len(answer) < self.valid_string_length_min:
+                raise ValidationError(MinLengthValidator.message % {
+                    'limit_value': self.valid_string_length_min,
+                    'show_value': len(answer)
+                })
             if self.valid_string_length_max is not None and len(answer) > self.valid_string_length_max:
                 raise ValidationError(MaxLengthValidator.message % {
                     'limit_value': self.valid_string_length_max,
@@ -1897,6 +1914,8 @@ class Question(LoggedModel):
             raise ValidationError(_("The maximum date must not be before the minimum value."))
         if self.valid_number_max and self.valid_number_min and self.valid_number_min > self.valid_number_max:
             raise ValidationError(_("The maximum value must not be lower than the minimum value."))
+        if self.valid_string_length_max and self.valid_string_length_min and self.valid_string_length_min > self.valid_string_length_max:
+            raise ValidationError(_("The maximum length must not be shorter than the minimum length."))
         super().clean()
 
     def clean_type_change(self, old_type, new_type):

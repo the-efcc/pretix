@@ -42,7 +42,7 @@ import os
 import re
 from collections import Counter, OrderedDict, defaultdict
 from decimal import Decimal
-from urllib.parse import quote
+from urllib.parse import quote, urlencode
 
 from django import forms
 from django.conf import settings
@@ -55,6 +55,7 @@ from django.http import (
     FileResponse, Http404, HttpResponseRedirect, JsonResponse,
 )
 from django.shortcuts import get_object_or_404, redirect, render
+from django.utils.crypto import get_random_string
 from django.utils.decorators import method_decorator
 from django.utils.functional import cached_property
 from django.utils.timezone import now
@@ -91,7 +92,9 @@ from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 from pretix.helpers.http import redirect_to_url
 from pretix.helpers.safedownload import check_token
 from pretix.multidomain.urlreverse import eventreverse, eventreverse_absolute
-from pretix.presale.forms.checkout import InvoiceAddressForm, QuestionsForm
+from pretix.presale.forms.checkout import (
+    CustomerAwareQuestionsForm, InvoiceAddressForm,
+)
 from pretix.presale.forms.order import OrderPositionChangeForm
 from pretix.presale.productlist import prepare_item_list_for_shop
 from pretix.presale.signals import question_form_fields_overrides
@@ -115,11 +118,17 @@ class OrderDetailMixin(NoSearchIndexViewMixin):
             raise Http404(_('Unknown order code or not authorized to access this order.'))
 
         if o is False:
-            login_url = eventreverse(self.request.organizer, 'presale:organizer.customer.login', kwargs={})
+            login_url = eventreverse_absolute(self.request.organizer, 'presale:organizer.customer.login', kwargs={})
 
-            if hasattr(self.request, "event_domain") and self.request.event_domain:
-                next_url = quote(self.request.scheme + "://" + self.request.get_host() + self.request.get_full_path())
-                return redirect_to_url(f'{login_url}?next={next_url}&request_cross_domain_customer_auth=true')
+            if self.request.domain_mode in ('event', 'organizer_alternative'):
+                nonce = get_random_string(32)
+                self.request.session['cross_domain_customer_auth_nonce'] = nonce
+                query = {
+                    "next": self.request.scheme + "://" + self.request.get_host() + self.request.get_full_path(),
+                    "request_cross_domain_customer_auth_nonce": nonce,
+                    "request_cross_domain_customer_auth": "true",
+                }
+                return redirect_to_url(f'{login_url}?{urlencode(query)}')
 
             else:
                 next_url = quote(self.request.get_full_path())
@@ -350,7 +359,7 @@ class OrderDetails(EventViewMixin, OrderDetailMixin, CartMixin, TicketPageMixin,
                 pp = lp.payment_provider
                 ctx['last_payment_info'] = pp.payment_pending_render(self.request, ctx['last_payment'])
 
-                if lp.state == OrderPayment.PAYMENT_STATE_PENDING and not pp.abort_pending_allowed:
+                if lp.state == OrderPayment.PAYMENT_STATE_PENDING and not pp._payment_abort_pending_allowed(lp):
                     ctx['can_pay'] = False
 
             ctx['can_pay'] = ctx['can_pay'] and self.order._can_be_paid() is True
@@ -367,7 +376,7 @@ class OrderDetails(EventViewMixin, OrderDetailMixin, CartMixin, TicketPageMixin,
         ctx['user_cancel_allowed'] = self.order.user_cancel_allowed
         for r in ctx['refunds']:
             if r.provider == 'giftcard':
-                gc = GiftCard.objects.get(pk=r.info_data.get('gift_card'))
+                gc = self.request.organizer.accepted_gift_cards.get(pk=r.info_data.get('gift_card'))
                 r.giftcard = gc
 
         try:
@@ -628,7 +637,8 @@ class OrderPayChangeMethod(EventViewMixin, OrderDetailMixin, TemplateView):
 
         if self.open_payment:
             pp = self.open_payment.payment_provider
-            if self.open_payment.state == OrderPayment.PAYMENT_STATE_PENDING and not pp.abort_pending_allowed:
+            if self.open_payment.state == OrderPayment.PAYMENT_STATE_PENDING and not pp._payment_abort_pending_allowed(
+                    self.open_payment):
                 messages.error(request, _('A payment is currently pending for this order.'))
                 return redirect(self.get_order_url())
 
@@ -823,9 +833,13 @@ class OrderInvoiceCreate(EventViewMixin, OrderDetailMixin, View):
 
 @method_decorator(xframe_options_exempt, 'dispatch')
 class OrderModify(EventViewMixin, OrderDetailMixin, OrderQuestionsViewMixin, TemplateView):
-    form_class = QuestionsForm
+    orderposition_form_class = CustomerAwareQuestionsForm
     invoice_form_class = InvoiceAddressForm
     template_name = "pretixpresale/event/order_modify.html"
+
+    @property
+    def order_question_container(self):
+        return self.order
 
     @cached_property
     def positions(self):
@@ -957,12 +971,16 @@ class OrderModify(EventViewMixin, OrderDetailMixin, OrderQuestionsViewMixin, Tem
 
 @method_decorator(xframe_options_exempt, 'dispatch')
 class OrderPositionModify(EventViewMixin, OrderPositionDetailMixin, OrderQuestionsViewMixin, TemplateView):
-    form_class = QuestionsForm
+    orderposition_form_class = CustomerAwareQuestionsForm
     invoice_form_class = None
     template_name = "pretixpresale/event/position_modify.html"
 
     @cached_property
     def invoice_form(self):
+        return None
+
+    @property
+    def order_question_container(self):
         return None
 
     @cached_property
@@ -1166,7 +1184,11 @@ class AnswerDownload(EventViewMixin, OrderDetailMixin, View):
         answid = kwargs.get('answer')
         token = request.GET.get('token', '')
 
-        answer = get_object_or_404(QuestionAnswer, orderposition__order=self.order, id=answid)
+        answer = get_object_or_404(
+            QuestionAnswer,
+            Q(orderposition__order=self.order) | Q(order=self.order),
+            id=answid,
+        )
         if not answer.file:
             raise Http404()
         if not check_token(request, answer, token):
@@ -1176,7 +1198,7 @@ class AnswerDownload(EventViewMixin, OrderDetailMixin, View):
         resp = FileResponse(answer.file, content_type=ftype or 'application/binary')
         resp['Content-Disposition'] = 'attachment; filename="{}-{}-{}-{}"'.format(
             self.request.event.slug.upper(), self.order.code,
-            answer.orderposition.positionid,
+            answer.orderposition.positionid if answer.orderposition else '',
             os.path.basename(answer.file.name).split('.', 1)[1]
         )
         return resp
@@ -1740,7 +1762,7 @@ class OrderChangeMixin:
 
         if totaldiff > Decimal('0.00') and self.order.status == Order.STATUS_PENDING:
             for p in self.order.payments.filter(state=OrderPayment.PAYMENT_STATE_PENDING):
-                if not p.payment_provider.abort_pending_allowed:
+                if not p.payment_provider._payment_abort_pending_allowed(p):
                     raise OrderError(_('You may not change your order in a way that requires additional payment while '
                                        'we are processing your current payment. Please check back after your current '
                                        'payment has been accepted.'))

@@ -744,6 +744,35 @@ class ItemDisplayTest(EventTestMixin, SoupTest):
         self.assertNotIn("SOLD OUT", doc.select("section:nth-of-type(1)")[0].text)
         self.assertIn("Late-bird", doc.select("section:nth-of-type(1)")[0].text)
 
+    def test_hidden_if_item_available_variation_unavailable_by_time(self):
+        with scopes_disabled():
+            q = Quota.objects.create(event=self.event, name='Early-bird', size=10)
+            q2 = Quota.objects.create(event=self.event, name='Late-bird', size=10)
+            item_with_vars = Item.objects.create(event=self.event, name='Early-bird ticket', default_price=12)
+            v = item_with_vars.variations.create(
+                value='Regular', active=True,
+            )
+            item2 = Item.objects.create(event=self.event, name='Late-bird ticket', default_price=12,
+                                        hidden_if_item_available=item_with_vars)
+            q.items.add(item_with_vars)
+            q.variations.add(v)
+            q2.items.add(item2)
+
+        self.event.settings.hide_sold_out = True
+        doc = self.get_doc('/%s/%s/' % (self.orga.slug, self.event.slug))
+        self.assertIn("Early-bird", doc.select("section:nth-of-type(1)")[0].text)
+        self.assertNotIn("SOLD OUT", doc.select("section:nth-of-type(1)")[0].text)
+        self.assertNotIn("Late-bird", doc.select("section:nth-of-type(1)")[0].text)
+
+        item_with_vars.available_until = now() - datetime.timedelta(days=3)
+        item_with_vars.available_until_mode = "hide"
+        item_with_vars.save()
+
+        doc = self.get_doc('/%s/%s/' % (self.orga.slug, self.event.slug))
+        self.assertNotIn("Early-bird", doc.select("section:nth-of-type(1)")[0].text)
+        self.assertNotIn("SOLD OUT", doc.select("section:nth-of-type(1)")[0].text)
+        self.assertIn("Late-bird", doc.select("section:nth-of-type(1)")[0].text)
+
     def test_bundle_sold_out(self):
         with scopes_disabled():
             q = Quota.objects.create(event=self.event, name='Quota', size=2)
@@ -895,7 +924,7 @@ class VoucherRedeemItemDisplayTest(EventTestMixin, SoupTest):
         self.q.size = 0
         self.q.save()
         html = self.client.get('/%s/%s/redeem?voucher=%s' % (self.orga.slug, self.event.slug, self.v.code))
-        assert "_voucher_item" not in html.rendered_content
+        assert "_selected_item" not in html.rendered_content
 
     def test_sold_out_blocking(self):
         self.q.size = 0
@@ -903,7 +932,7 @@ class VoucherRedeemItemDisplayTest(EventTestMixin, SoupTest):
         self.v.block_quota = True
         self.v.save()
         html = self.client.get('/%s/%s/redeem?voucher=%s' % (self.orga.slug, self.event.slug, self.v.code))
-        assert "_voucher_item" in html.rendered_content
+        assert "_selected_item" in html.rendered_content
 
     def test_sold_out_ignore(self):
         self.q.size = 0
@@ -911,7 +940,7 @@ class VoucherRedeemItemDisplayTest(EventTestMixin, SoupTest):
         self.v.allow_ignore_quota = True
         self.v.save()
         html = self.client.get('/%s/%s/redeem?voucher=%s' % (self.orga.slug, self.event.slug, self.v.code))
-        assert "_voucher_item" in html.rendered_content
+        assert "_selected_item" in html.rendered_content
 
     def test_variations_sold_out(self):
         with scopes_disabled():
@@ -922,7 +951,7 @@ class VoucherRedeemItemDisplayTest(EventTestMixin, SoupTest):
         self.q.size = 0
         self.q.save()
         html = self.client.get('/%s/%s/redeem?voucher=%s' % (self.orga.slug, self.event.slug, self.v.code))
-        assert "_voucher_item" not in html.rendered_content
+        assert "_selected_item" not in html.rendered_content
 
     def test_variations_sold_out_blocking(self):
         with scopes_disabled():
@@ -935,7 +964,27 @@ class VoucherRedeemItemDisplayTest(EventTestMixin, SoupTest):
         self.v.block_quota = True
         self.v.save()
         html = self.client.get('/%s/%s/redeem?voucher=%s' % (self.orga.slug, self.event.slug, self.v.code))
-        assert "_voucher_item" in html.rendered_content
+        assert "_selected_item" in html.rendered_content
+
+    def test_variation_not_available(self):
+        with scopes_disabled():
+            var1 = ItemVariation.objects.create(item=self.item, value='Red', position=1)
+            var2 = ItemVariation.objects.create(item=self.item, value='Black', position=2, available_from=now() + datetime.timedelta(days=2))
+            var3 = ItemVariation.objects.create(item=self.item, value='Purple', position=3,
+                                                available_from=now() + datetime.timedelta(days=2), available_from_mode=Item.UNAVAIL_MODE_INFO)
+            self.q.variations.add(var1)
+            self.q.variations.add(var2)
+            self.q.variations.add(var3)
+        self.q.size = 0
+        self.q.save()
+        self.v.block_quota = True
+        self.v.save()
+        html = self.client.get('/%s/%s/redeem?voucher=%s' % (self.orga.slug, self.event.slug, self.v.code))
+        assert "_selected_item" in html.rendered_content
+        assert "Black" not in html.rendered_content
+        assert "Red" in html.rendered_content
+        assert "Purple" in html.rendered_content
+        assert "Not available yet" in html.rendered_content
 
     def test_voucher_price(self):
         self.v.value = Decimal("10.00")
@@ -1143,7 +1192,7 @@ class WaitingListTest(EventTestMixin, SoupTest):
     def test_auto_disable(self):
         self.event.settings.set('waiting_list_enabled', True)
         self.event.settings.waiting_list_auto_disable = RelativeDateWrapper(
-            RelativeDate(days=900, time=datetime.time(9, 0, 0), base_date_name='date_from', minutes=None, is_after=False)
+            RelativeDate(days=900, time=datetime.time(9, 0, 0), base_date_name='event__date_from', minutes=None, is_after=False)
         )
         response = self.client.get(
             '/%s/%s/' % (self.orga.slug, self.event.slug)

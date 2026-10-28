@@ -400,10 +400,10 @@ class EventMetaValueForm(forms.ModelForm):
         if self.disabled:
             self.fields['value'].widget.attrs['readonly'] = 'readonly'
 
-    def clean_slug(self):
+    def clean_value(self):
         if self.disabled:
             return self.instance.value if self.instance else None
-        return self.cleaned_data['slug']
+        return self.cleaned_data['value']
 
     class Meta:
         model = EventMetaValue
@@ -601,6 +601,7 @@ class EventSettingsForm(EventSettingsValidationMixin, FormPlaceholderMixin, Sett
         'imprint_url',
         'checkout_email_helptext',
         'presale_has_ended_text',
+        'event_list_empty_text',
         'voucher_explanation_text',
         'voucher_show_frontpage_text',
         'checkout_success_text',
@@ -736,6 +737,7 @@ class EventSettingsForm(EventSettingsValidationMixin, FormPlaceholderMixin, Sett
             del self.fields['event_list_available_only']
             del self.fields['event_list_filters']
             del self.fields['event_calendar_future_only']
+            del self.fields['event_list_empty_text']
         self.fields['primary_font'].choices = [('Open Sans', 'Open Sans')] + sorted([
             (a, FontSelect.FontOption(title=a, data=v)) for a, v in get_fonts(self.event, pdf_support_required=False).items()
         ], key=lambda a: a[0])
@@ -838,9 +840,10 @@ class CancelSettingsForm(SettingsForm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.obj.settings.giftcard_expiry_years is not None:
-            self.fields['cancel_allow_user_paid_refund_as_giftcard'].help_text = gettext(
-                'You have configured gift cards to be valid {} years plus the year the gift card is issued in.'
-            ).format(self.obj.settings.giftcard_expiry_years)
+            self.fields['cancel_allow_user_paid_refund_as_giftcard'].help_text = format_html(
+                gettext('You have configured gift cards to be valid {} years plus the year the gift card is issued in.'),
+                self.obj.settings.giftcard_expiry_years
+            )
 
 
 class PaymentSettingsForm(EventSettingsValidationMixin, SettingsForm):
@@ -861,8 +864,59 @@ class PaymentSettingsForm(EventSettingsValidationMixin, SettingsForm):
         'installments_reminder_days',
         'installments_limit_by_event_date',
         'payment_explanation',
+        'payment_choice_postpone_allowed_channels',
         'tax_rule_payment',
     ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        channels = list(self.obj.organizer.sales_channels.all())
+        self.fields['payment_choice_postpone_allowed_channels'].choices = [
+            (c.identifier, c.label) for c in channels
+            if c.type_instance.payment_restrictions_supported
+        ]
+
+        self.term_channel_fields = {}
+        for c in channels:
+            if c.type_instance.payment_restrictions_supported and c.identifier != "web":
+                # At the moment, it seems sufficient to allow this for the same channel types as other payment settings
+                # We can always introduce more flags later if needed
+                suffix = '_' + c.identifier.replace(".", "_")
+                self.term_channel_fields[c] = [
+                    'payment_term_mode' + suffix,
+                    'payment_term_days' + suffix,
+                    'payment_term_minutes' + suffix,
+                ]
+                self.fields['payment_term_mode' + suffix] = DEFAULTS['payment_term_mode']['form_class'](
+                    label=_("Payment term"),
+                    widget=forms.RadioSelect,
+                    required=False,
+                    choices=(
+                        ('', _("same as above")),
+                        ('days', _("different payment term in days")),
+                        ('minutes', _("different payment term in minutes"))
+                    ),
+                )
+                self.fields['payment_term_days' + suffix] = DEFAULTS['payment_term_days']['form_class'](
+                    required=False,
+                    **DEFAULTS['payment_term_days']['form_kwargs'](suffix, 1),
+                )
+                self.fields['payment_term_minutes' + suffix] = DEFAULTS['payment_term_minutes']['form_class'](
+                    required=False,
+                    **DEFAULTS['payment_term_minutes']['form_kwargs'](suffix, 2),
+                )
+
+    def clean(self):
+        data = super().clean()
+        for c in self.term_channel_fields.keys():
+            suffix = '_' + c.identifier.replace(".", "_")
+            mode = self.cleaned_data.get(f'payment_term_mode{suffix}')
+            if mode == 'days' and self.cleaned_data.get(f'payment_term_days{suffix}') is None:
+                raise ValidationError({f'payment_term_days{suffix}': _("This field is required.")})
+            if mode == 'minutes' and self.cleaned_data.get(f'payment_term_minutes{suffix}') is None:
+                raise ValidationError({f'payment_term_minutes{suffix}': _("This field is required.")})
+        return data
 
     def clean_payment_term_days(self):
         value = self.cleaned_data.get('payment_term_days')
@@ -1590,10 +1644,15 @@ class MailSettingsForm(FormPlaceholderMixin, SettingsForm):
             self._set_field_placeholders(k, v, rich=k.startswith('mail_text_') and k not in self.plain_rendering)
 
         for k, v in list(self.fields.items()):
-            if k.endswith('_attendee') and not event.settings.attendee_emails_asked:
-                # If we don't ask for attendee emails, we can't send them anything and we don't need to clutter
-                # the user interface with it
-                del self.fields[k]
+            if k.endswith('_attendee'):
+                if not event.settings.attendee_emails_asked:
+                    # If we don't ask for attendee emails, we can't send them anything and we don't need to clutter
+                    # the user interface with it
+                    del self.fields[k]
+                elif 'subject' in k and k.replace("subject", "send") in self.fields:
+                    v.widget.attrs["data-display-dependency"] = f'#id_{k.replace("subject", "send")}'
+                elif 'text' in k and k.replace("text", "send") in self.fields:
+                    v.widget.attrs["data-display-dependency"] = f'#id_{k.replace("text", "send")}'
 
 
 class TicketSettingsForm(SettingsForm):

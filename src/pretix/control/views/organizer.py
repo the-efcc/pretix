@@ -108,6 +108,9 @@ from pretix.base.services.export import (
     init_organizer_exporters, multiexport, scheduled_organizer_export,
 )
 from pretix.base.services.mail import mail, prefix_subject
+from pretix.base.services.placeholders import (
+    prepare_sample_context_for_preview,
+)
 from pretix.base.templatetags.rich_text import markdown_compile_email
 from pretix.base.views.tasks import AsyncAction
 from pretix.control.forms.exports import ScheduledOrganizerExportForm
@@ -345,16 +348,11 @@ class MailSettingsPreview(OrganizerPermissionRequiredMixin, View):
 
     # get all supported placeholders with dummy values
     def placeholders(self, item):
-        ctx = {}
-        for p, s in MailSettingsForm(obj=self.request.organizer)._get_sample_context(
-                MailSettingsForm.base_context[item]).items():
-            if s.strip().startswith('*'):
-                ctx[p] = s
-            else:
-                ctx[p] = '<span class="placeholder" title="{}">{}</span>'.format(
-                    _('This value will be replaced based on dynamic parameters.'),
-                    s
-                )
+        ctx = prepare_sample_context_for_preview(
+            MailSettingsForm(obj=self.request.organizer)._get_sample_context(
+                MailSettingsForm.base_context[item]
+            )
+        )
         return self.SafeDict(ctx)
 
     def post(self, request, *args, **kwargs):
@@ -780,9 +778,9 @@ class OrganizerPluginEvents(OrganizerDetailViewMixin, OrganizerPermissionRequire
 
     def get_form_kwargs(self):
         kwargs = super().get_form_kwargs()
-        kwargs["events"] = self.request.user.get_events_with_permission(
-            "event.settings.general:write", request=self.request
-        ).filter(organizer=self.request.organizer)
+        # Assumption: Who has access to modify organizer settings may see all events and disable/enable plugins
+        # for them. Otherwise, inconsistent situations occur.
+        kwargs["events"] = self.request.organizer.events.all()
         kwargs["initial"] = {
             "events": self.request.organizer.events.filter(plugins__regex='(^|,)' + self.plugin.module + '(,|$)')
         }
@@ -1210,7 +1208,7 @@ class DeviceQueryMixin:
     def get_queryset(self):
         qs = self.request.organizer.devices.prefetch_related(
             'limit_events', 'gate',
-        ).order_by('revoked', '-device_id')
+        ).select_related('last_seen').order_by('revoked', '-device_id')
 
         if 'device' in self.request_data and '__ALL' not in self.request_data:
             qs = qs.filter(
@@ -2204,7 +2202,7 @@ class ExportView(OrganizerPermissionRequiredMixin, ExportMixin, ListView):
                 owner=self.request.user,
                 timezone=str(get_current_timezone()),
             )
-        if not self.scheduled:
+        if not self.scheduled and not self.scheduled_copy_from:
             initial = {
                 "mail_subject": gettext("Export: {title}").format(title=self.exporter.verbose_name),
                 "mail_template": gettext(

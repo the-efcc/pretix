@@ -536,7 +536,7 @@ class EventsTest(SoupTest):
             'payment_term_last_0': 'absolute',
             'payment_term_last_1': (self.event1.presale_end - datetime.timedelta(1)).strftime('%Y-%m-%d'),
             'payment_term_last_2': '0',
-            'payment_term_last_3': 'date_from',
+            'payment_term_last_3': 'event__date_from',
             'tax_rule_payment': 'default',
         })
         assert doc.select('.alert-danger')
@@ -551,7 +551,7 @@ class EventsTest(SoupTest):
             'payment_term_last_0': 'relative',
             'payment_term_last_1': '',
             'payment_term_last_2': '10',
-            'payment_term_last_3': 'date_from',
+            'payment_term_last_3': 'event__date_from',
             'tax_rule_payment': 'default',
         })
         assert doc.select('.alert-danger')

@@ -19,13 +19,7 @@
 # You should have received a copy of the GNU Affero General Public License along with this program.  If not, see
 # <https://www.gnu.org/licenses/>.
 #
-
-from django.dispatch import receiver
-
-from pretix.base.signals import register_payment_providers
-
-
-@receiver(register_payment_providers, dispatch_uid="payment_paypal")
-def register_payment_provider(sender, **kwargs):
-    from .payment import Paypal
-    return Paypal
+def readonly_db(execute, sql, params, many, context):
+    if not sql.lower().startswith("select"):
+        raise Exception(f"Should not write anything to the database, but detected query: {sql}")
+    return execute(sql, params, many, context)

@@ -431,7 +431,7 @@ class SubEventEditorMixin(MetaDataEditorMixin):
         days = (self.copy_from.date_from.astimezone(tz).date() - value.astimezone(tz).date()).days
         return RelativeDateWrapper(RelativeDate(
             days=abs(days),
-            base_date_name='date_from',
+            base_date_name='event__date_from',
             time=value.astimezone(tz).time(),
             minutes=None,
             is_after=days < 0,
@@ -1276,6 +1276,11 @@ class SubEventBulkEdit(SubEventQueryMixin, EventPermissionRequiredMixin, FormVie
             self._default_meta = self.request.event.meta_data
 
         for p in self.request.organizer.meta_properties.all():
+            if p.protected and not self.request.user.has_organizer_permission(
+                    self.request.organizer, 'organizer.settings.general:write', request=self.request
+            ):
+                continue
+
             inst = SubEventMetaValue(property=p)
             if len(matches[p.id]) == 1 and matches[p.id][0]['c'] == total:
                 inst.value = matches[p.id][0]['value']

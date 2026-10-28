@@ -19,21 +19,21 @@
 # You should have received a copy of the GNU Affero General Public License along with this program.  If not, see
 # <https://www.gnu.org/licenses/>.
 #
-from django.urls import include, re_path
+import json
 
-from .views import abort, oauth_disconnect, success
+import pytest
 
-event_patterns = [
-    re_path(r'^paypal/', include([
-        re_path(r'^abort/$', abort, name='abort'),
-        re_path(r'^return/$', success, name='return'),
 
-        re_path(r'w/(?P<cart_namespace>[a-zA-Z0-9]{16})/abort/', abort, name='abort'),
-        re_path(r'w/(?P<cart_namespace>[a-zA-Z0-9]{16})/return/', success, name='return'),
-    ])),
-]
+def test_allowed_json():
+    assert json.loads('{"float":1.5,"int":161,"arr":[]}') == {"float": 1.5, "int": 161, "arr": []}
 
-urlpatterns = [
-    re_path(r'^control/event/(?P<organizer>[^/]+)/(?P<event>[^/]+)/paypal/disconnect/',
-            oauth_disconnect, name='oauth.disconnect'),
-]
+
+def test_disallowed_json_float_consts():
+    with pytest.raises(KeyError):
+        json.loads("Infinity")
+    with pytest.raises(KeyError):
+        json.loads("-Infinity")
+    with pytest.raises(KeyError):
+        json.loads("NaN")
+    with pytest.raises(KeyError):
+        json.loads("[123, NaN, Infinity, -Infinity]")
