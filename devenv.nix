@@ -31,7 +31,7 @@ in
   # Python environment with dev dependencies
   languages.python = {
     enable = true;
-    version = "3.11";
+    package = pkgs.python3;
     venv.enable = true;
     venv.requirements = ''
       # Install pretix in editable mode with dev dependencies
@@ -42,7 +42,7 @@ in
   # Node.js for frontend assets
   languages.javascript = {
     enable = true;
-    package = pkgs.nodejs_20;
+    package = pkgs.nodejs_22;
     npm.enable = true;
   };
 
