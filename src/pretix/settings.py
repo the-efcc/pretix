@@ -761,7 +761,7 @@ if config.has_option('sentry', 'dsn') and not any(c in sys.argv for c in ('shell
             LoggingIntegration(
                 level=logging.INFO,
                 event_level=parse_log_level(SENTRY_EVENT_LEVEL) if SENTRY_EVENT_LEVEL else logging.CRITICAL,
-                sentry_logs_level=logging.NOTSET,
+                sentry_logs_level=logging.INFO,
                 capture_sentry_logs=SENTRY_ENABLE_LOGS,
             )
         ],
