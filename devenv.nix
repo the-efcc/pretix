@@ -49,6 +49,10 @@ in
   # PostgreSQL database for development
   services.postgres = {
     enable = true;
+    # Pinned: the on-disk cluster in .devenv/state/postgres is tied to the
+    # major version, and nixpkgs' default moves. Bumping this needs a
+    # pg_upgrade or a wipe + pretix-setup.
+    package = pkgs.postgresql_17;
     initialDatabases = [ { name = "pretix"; } ];
     # Create a dedicated role so the connection config doesn't depend on the
     # OS username. Runs only when the cluster is first initialized.
