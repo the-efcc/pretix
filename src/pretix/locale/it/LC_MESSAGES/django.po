@@ -40052,6 +40052,11 @@ msgstr "Rata"
 msgid "Due date"
 msgstr "Data di scadenza"
 
+#: pretix/control/templates/pretixcontrol/order/index.html, pretix/efcc/models.py
+msgctxt "installment"
+msgid "State"
+msgstr "Stato"
+
 #: pretix/control/templates/pretixcontrol/order/index.html
 msgid "Processed"
 msgstr "Elaborato"

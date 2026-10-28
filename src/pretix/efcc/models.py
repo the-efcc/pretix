@@ -243,7 +243,7 @@ class ScheduledInstallment(models.Model):
         max_length=20,
         choices=STATE_CHOICES,
         default=STATE_PENDING,
-        verbose_name=_("State"),
+        verbose_name=pgettext_lazy("installment", "State"),
         db_index=True
     )
     payment = models.ForeignKey(

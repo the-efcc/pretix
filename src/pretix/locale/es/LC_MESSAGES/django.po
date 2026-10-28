@@ -37821,6 +37821,11 @@ msgstr "Cuota"
 msgid "Due date"
 msgstr "Fecha de vencimiento"
 
+#: pretix/control/templates/pretixcontrol/order/index.html, pretix/efcc/models.py
+msgctxt "installment"
+msgid "State"
+msgstr "Estado"
+
 #: pretix/control/templates/pretixcontrol/order/index.html
 msgid "Processed"
 msgstr "Procesado"
