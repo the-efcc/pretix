@@ -73,17 +73,11 @@ def get_max_installments_for_event(event, reference_date=None) -> int:
     else:
         current_date = reference_date
 
-    months_diff = (event_date.year - current_date.year) * 12 + (event_date.month - current_date.month)
+    for count in range(max_installments, 1, -1):
+        if current_date + relativedelta(months=count - 1) < event_date:
+            return count
 
-    # Adjust for day-of-month: if we're on or past the event's day in the current month,
-    # we're "within" that many months, not "past" them
-    if current_date.day >= event_date.day:
-        months_diff -= 1
-
-    if months_diff <= 0:
-        return 0
-
-    return min(months_diff, max_installments)
+    return 0
 
 
 def installments_available_for_event(event, provider, cart_total: Decimal) -> bool:

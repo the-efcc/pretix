@@ -19,7 +19,7 @@
 # You should have received a copy of the GNU Affero General Public License along with this program.  If not, see
 # <https://www.gnu.org/licenses/>.
 #
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
 import pytest
@@ -250,10 +250,38 @@ class TestEventDateLimitIsOnByDefault:
     intent, so the limit is on unless an organizer deliberately turns it off.
     """
 
-    def test_default_caps_installments_at_the_event_date(self, event):
-        event.date_from = now() + timedelta(days=70)  # a bit over two months out
+    def test_the_cap_is_the_runway_the_schedule_actually_needs(self, event):
+        # Three installments fall due now, in one month and in two months, so an event
+        # five weeks out has room for two of them and no more.
+        event.date_from = now() + timedelta(days=35)
         event.save()
         assert get_max_installments_for_event(event) == 2
+
+    def test_a_plan_finishing_a_month_before_the_event_is_allowed(self, event):
+        # Ordering on 29 October for a 27 December event: two installments, the last due
+        # on 29 November. Counting whole months read this as one installment and so
+        # withdrew the offer entirely.
+        event.date_from = datetime(2026, 12, 27, tzinfo=timezone.utc)
+        event.save()
+        assert get_max_installments_for_event(
+            event, reference_date=datetime(2026, 10, 29, tzinfo=timezone.utc)
+        ) == 2
+
+    def test_an_installment_due_on_the_event_day_itself_is_too_late(self, event):
+        event.date_from = datetime(2026, 12, 27, tzinfo=timezone.utc)
+        event.save()
+        assert get_max_installments_for_event(
+            event, reference_date=datetime(2026, 11, 27, tzinfo=timezone.utc)
+        ) == 0
+
+    def test_a_short_month_is_judged_by_the_due_date_it_produces(self, event):
+        # 31 January plus one month is 28 February, which is what the schedule will
+        # charge, so the plan fits an event on 1 March.
+        event.date_from = datetime(2026, 3, 1, tzinfo=timezone.utc)
+        event.save()
+        assert get_max_installments_for_event(
+            event, reference_date=datetime(2026, 1, 31, tzinfo=timezone.utc)
+        ) == 2
 
     def test_an_event_today_allows_no_installments(self, event):
         event.date_from = now()
