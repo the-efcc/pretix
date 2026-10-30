@@ -629,6 +629,24 @@ class OrderPayChangeMethod(EventViewMixin, OrderDetailMixin, TemplateView):
             messages.error(request, _('The payment method for this order cannot be changed.'))
             return redirect(self.get_order_url())
 
+        # efcc: an active installment plan collects the order one installment at a time. This page
+        # would charge the whole open balance outside the plan, which the plan never hears about, so
+        # the order page does not link here and a typed-in URL must not get through either. A failed
+        # installment has its own page, which charges just that installment against the plan.
+        try:
+            plan = self.order.installment_plan
+        except InstallmentPlan.DoesNotExist:
+            pass
+        else:
+            if plan.status == InstallmentPlan.STATUS_ACTIVE:
+                if plan.installments.filter(state=ScheduledInstallment.STATE_FAILED).exists():
+                    return redirect(eventreverse(self.request.event, 'presale:event.order.installment.recovery', kwargs={
+                        'order': self.order.code,
+                        'secret': self.order.secret,
+                    }))
+                messages.error(request, _('This order is paid in installments, which are charged automatically.'))
+                return redirect(self.get_order_url())
+
         term_last = self.order.payment_term_last
         if term_last and now() > term_last:
             messages.error(request, _('The payment is too late to be accepted.'))

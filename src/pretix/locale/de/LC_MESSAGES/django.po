@@ -38160,6 +38160,14 @@ msgstr ""
 "Ihre erste Rate ist bei uns eingegangen. Die weiteren Raten werden "
 "automatisch gemäß Plan eingezogen."
 
+#: pretix/presale/templates/pretixpresale/event/order.html
+msgid ""
+"Your installment plan has been set up. We are still waiting for your first "
+"installment payment to be confirmed."
+msgstr ""
+"Ihr Ratenzahlungsplan wurde eingerichtet. Wir warten noch auf die "
+"Bestätigung Ihrer ersten Rate."
+
 #: pretix/presale/templates/pretixpresale/event/order.html, pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
 msgid "of"
 msgstr "von"
@@ -38270,6 +38278,11 @@ msgid "This order does not have any failed installments requiring recovery."
 msgstr ""
 "Diese Bestellung hat keine fehlgeschlagenen Raten, die behoben werden "
 "müssen."
+
+#: pretix/presale/views/order.py
+msgid "This order is paid in installments, which are charged automatically."
+msgstr ""
+"Diese Bestellung wird in Raten bezahlt, die automatisch eingezogen werden."
 
 #: pretix/presale/views/order.py
 msgid "The payment provider for this order is not available."

@@ -44,9 +44,13 @@
                         <strong>
                             {% trans "Please note that we still await approval by the event organizer before you can pay and complete this order." %}
                         </strong>
-                    {% elif installment_plan %}
+                    {% elif installment_plan and installment_plan.installments_paid %}
                         <strong>
                             {% trans "Your first installment has been received. The remaining installments will be charged automatically according to schedule." %}
+                        </strong>
+                    {% elif installment_plan %}
+                        <strong>
+                            {% trans "Your installment plan has been set up. We are still waiting for your first installment payment to be confirmed." %}
                         </strong>
                     {% elif not event.settings.payment_pending_hidden %}
                         <strong>
