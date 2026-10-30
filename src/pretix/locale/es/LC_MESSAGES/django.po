@@ -38139,6 +38139,14 @@ msgstr ""
 "Hemos recibido su primera cuota. Las cuotas restantes se cobrarán "
 "automáticamente según el calendario previsto."
 
+#: pretix/presale/templates/pretixpresale/event/order.html
+msgid ""
+"Your installment plan has been set up. We are still waiting for your first "
+"installment payment to be confirmed."
+msgstr ""
+"Su plan de pago a plazos se ha configurado. Todavía estamos esperando la "
+"confirmación del pago de su primera cuota."
+
 #: pretix/presale/templates/pretixpresale/event/order.html, pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
 msgid "of"
 msgstr "de"
@@ -38244,6 +38252,10 @@ msgstr "Proveedor de pago no disponible"
 #: pretix/presale/views/order.py
 msgid "This order does not have any failed installments requiring recovery."
 msgstr "Este pedido no tiene cuotas fallidas que requieran regularización."
+
+#: pretix/presale/views/order.py
+msgid "This order is paid in installments, which are charged automatically."
+msgstr "Este pedido se paga en cuotas, que se cobran automáticamente."
 
 #: pretix/presale/views/order.py
 msgid "The payment provider for this order is not available."

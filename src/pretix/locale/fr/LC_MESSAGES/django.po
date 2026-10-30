@@ -38500,6 +38500,14 @@ msgstr ""
 "Votre première échéance a bien été reçue. Les échéances restantes seront "
 "prélevées automatiquement selon l’échéancier."
 
+#: pretix/presale/templates/pretixpresale/event/order.html
+msgid ""
+"Your installment plan has been set up. We are still waiting for your first "
+"installment payment to be confirmed."
+msgstr ""
+"Votre échéancier de paiement a été mis en place. Nous attendons encore la "
+"confirmation du paiement de votre première échéance."
+
 #: pretix/presale/templates/pretixpresale/event/order.html, pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
 msgid "of"
 msgstr "sur"
@@ -38610,6 +38618,12 @@ msgid "This order does not have any failed installments requiring recovery."
 msgstr ""
 "Cette commande ne comporte aucune échéance en échec nécessitant une "
 "régularisation."
+
+#: pretix/presale/views/order.py
+msgid "This order is paid in installments, which are charged automatically."
+msgstr ""
+"Cette commande est réglée en plusieurs échéances, qui sont prélevées "
+"automatiquement."
 
 #: pretix/presale/views/order.py
 msgid "The payment provider for this order is not available."

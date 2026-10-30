@@ -40394,6 +40394,14 @@ msgstr ""
 "Abbiamo ricevuto la tua prima rata. Le rate restanti verranno addebitate "
 "automaticamente secondo il piano previsto."
 
+#: pretix/presale/templates/pretixpresale/event/order.html
+msgid ""
+"Your installment plan has been set up. We are still waiting for your first "
+"installment payment to be confirmed."
+msgstr ""
+"Il tuo piano rateale è stato attivato. Siamo ancora in attesa della "
+"conferma del pagamento della tua prima rata."
+
 #: pretix/presale/templates/pretixpresale/event/order.html, pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
 msgid "of"
 msgstr "di"
@@ -40503,6 +40511,11 @@ msgstr "Servizio di pagamento non disponibile"
 msgid "This order does not have any failed installments requiring recovery."
 msgstr ""
 "Questo ordine non ha rate non riuscite che richiedono una regolarizzazione."
+
+#: pretix/presale/views/order.py
+msgid "This order is paid in installments, which are charged automatically."
+msgstr ""
+"Questo ordine viene pagato a rate, che vengono addebitate automaticamente."
 
 #: pretix/presale/views/order.py
 msgid "The payment provider for this order is not available."
