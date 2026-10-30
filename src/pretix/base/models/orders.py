@@ -2012,6 +2012,16 @@ class OrderPayment(models.Model):
             'provider': self.provider,
         }, user=user, auth=auth)
 
+        # efcc: a plan only settles its order once the final installment is collected, so the
+        # order stays pending for the whole term. Its tickets become valid as soon as the first
+        # installment is actually collected -- not when the order is placed, or an order whose
+        # first charge never went through would be valid without a cent having been paid.
+        if installment is not None and Order.objects.filter(
+            pk=self.order_id, status=Order.STATUS_PENDING, valid_if_pending=False,
+        ).update(valid_if_pending=True):
+            self.order.valid_if_pending = True
+            self.order.log_action('pretix.event.order.valid_if_pending.set', user=user, auth=auth)
+
         if self.order.status in (Order.STATUS_PAID, Order.STATUS_CANCELED):
             logger.info('Confirmed payment {} but order is in status {}.'.format(self.full_id, self.order.status))
             return

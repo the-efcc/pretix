@@ -398,6 +398,47 @@ class TestProcessDueInstallmentsAfterCheckout:
         assert provider.execute_installment.call_count == 0
         assert order.payments.count() == 1
 
+    def test_order_is_valid_once_the_checkout_payment_is_confirmed(self, event, order):
+        provider = _mock_provider()
+        self._real_plan(event, order, provider)
+        assert not order.valid_if_pending
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                order.payments.get().confirm(send_mail=False)
+
+        order.refresh_from_db()
+        assert order.status == Order.STATUS_PENDING
+        assert order.valid_if_pending
+        with scope(organizer=event.organizer):
+            assert order.all_logentries().filter(action_type='pretix.event.order.valid_if_pending.set').count() == 1
+
+    def test_order_is_not_valid_when_the_checkout_payment_fails(self, event, order):
+        provider = _mock_provider()
+        self._real_plan(event, order, provider)
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                order.payments.get().fail(send_mail=False)
+
+        order.refresh_from_db()
+        assert order.status == Order.STATUS_PENDING
+        assert not order.valid_if_pending
+
+    def test_order_becomes_valid_when_the_failed_first_installment_is_charged(self, event, order):
+        provider = _mock_provider()
+        plan = self._real_plan(event, order, provider)
+        plan.payment_token = {'token': 'tok_123'}
+        plan.save(update_fields=['payment_token'])
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                order.payments.get().fail(send_mail=False)
+                process_due_installments()
+
+        order.refresh_from_db()
+        assert order.valid_if_pending
+
     def test_charges_the_first_installment_once_its_payment_has_failed(self, event, order):
         provider = _mock_provider()
         plan = self._real_plan(event, order, provider)
