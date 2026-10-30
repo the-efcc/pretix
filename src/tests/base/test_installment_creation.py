@@ -238,12 +238,12 @@ class TestPerformOrderWithInstallments:
             assert order.installment_plan.total_installments == 4
             assert order.payments.first().amount == Decimal('25.00')
 
-    def test_order_is_valid_while_pending(self, event, cart_position):
+    def test_order_is_not_valid_before_the_first_installment_is_collected(self, event, cart_position):
         """
-        A plan only settles its order once the last installment is collected, so the
-        order stays pending for the whole term. Its tickets are valid from the start
-        anyway -- that is what buying in installments is for. ``_valid_if_pending`` is
-        pinned off on the provider so only the installment plan can be the reason.
+        Choosing installments is not a payment. The order only becomes valid while pending
+        once the first installment is actually collected (see ``OrderPayment.confirm()``),
+        otherwise an order whose first charge never goes through would be valid for free.
+        ``_valid_if_pending`` is pinned off on the provider so only the plan could be the reason.
         """
         provider = _mock_order_provider()
         provider.settings.get.return_value = False
@@ -253,7 +253,7 @@ class TestPerformOrderWithInstallments:
             order = Order.objects.get(pk=result['order_id'])
 
             assert order.status == Order.STATUS_PENDING
-            assert order.valid_if_pending
+            assert not order.valid_if_pending
 
     def test_order_paid_in_full_is_not_valid_while_pending(self, event, cart_position):
         event.settings.set('installments_enabled', True)
