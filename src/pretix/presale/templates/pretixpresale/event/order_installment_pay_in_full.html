@@ -1,0 +1,30 @@
+{% extends "pretixpresale/event/base.html" %}
+{% load i18n %}
+{% load money %}
+{% block title %}{% trans "Pay the full amount instead" %}{% endblock %}
+{% block content %}
+    <h2>{% trans "Pay the full amount instead" %}</h2>
+
+    <form method="post">
+        {% csrf_token %}
+        <div class="panel panel-primary">
+            <div class="panel-body">
+                <p>
+                    {% blocktrans trimmed with amount=amount|money:event.currency %}
+                        Instead of paying in installments, you can pay the remaining {{ amount }} at once.
+                        Your installment plan will then be canceled, and you can choose how to pay on the next page.
+                    {% endblocktrans %}
+                </p>
+            </div>
+            <div class="panel-footer text-right">
+                <a href="{% url "presale:event.order" event.organizer.slug event.slug order.code order.secret %}"
+                   class="btn btn-default">
+                    {% trans "Cancel" %}
+                </a>
+                <button type="submit" class="btn btn-primary">
+                    {% trans "Continue" %}
+                </button>
+            </div>
+        </div>
+    </form>
+{% endblock %}

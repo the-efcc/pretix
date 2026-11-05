@@ -99,6 +99,12 @@
         </div>
     </form>
 
+    <p class="text-right">
+        <a href="{% url "presale:event.order.installment.pay_in_full" event.organizer.slug event.slug order.code order.secret %}">
+            {% trans "Pay the full amount instead" %}
+        </a>
+    </p>
+
     <div class="panel panel-info">
         <div class="panel-heading">
             <h3 class="panel-title">{% trans "Installment plan overview" %}</h3>
