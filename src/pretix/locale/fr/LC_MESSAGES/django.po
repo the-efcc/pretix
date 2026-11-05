@@ -37992,6 +37992,10 @@ msgstr ""
 msgid "Payment failed: {code}"
 msgstr "Échec du paiement : {code}"
 
+#: pretix/base/services/installments.py
+msgid "No saved payment method is available."
+msgstr "Aucun mode de paiement enregistré n'est disponible."
+
 #: pretix/base/settings.py
 #, python-brace-format
 msgid ""
