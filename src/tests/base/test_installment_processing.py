@@ -692,6 +692,58 @@ class TestAbandonedPlansWindDown:
         assert plan.status == InstallmentPlan.STATUS_CANCELLED
         assert order.status == Order.STATUS_CANCELED
 
+    def test_an_abandoned_checkout_tells_the_customer_where_to_pay(self, event, order):
+        """
+        The checkout payment failed and the plan holds no token: none was stored, or
+        the provider took back one it knew would never work. Paying again through the
+        recovery page is the only way out, so the customer has to hear about it now,
+        not from the grace-period warning a day before the order is cancelled.
+        """
+        provider = _mock_provider()
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                create_installment_plan(order, 'dummy', installments_count=3)
+                order.payments.get().fail(send_mail=False)
+                mail.outbox = []
+
+                process_due_installments()
+
+        provider.execute_installment.assert_not_called()
+        assert len(mail.outbox) == 1
+        assert order.code in mail.outbox[0].subject
+        assert '/installment-recovery/' in mail.outbox[0].body
+
+    def test_a_retry_without_a_token_sends_no_mail(self, event, order, plan):
+        """The control panel's retry button stays quiet, as it does for a decline."""
+        plan.payment_token = {}
+        plan.save(update_fields=['payment_token'])
+        inst = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+        mail.outbox = []
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                assert process_single_installment(inst) is False
+
+        assert len(mail.outbox) == 0
+
+    def test_a_declined_charge_tells_the_customer_where_to_pay(self, event, order, plan):
+        ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+        mail.outbox = []
+
+        with _patch_providers(_mock_provider(execute_result=False)):
+            with scope(organizer=event.organizer):
+                process_due_installments()
+
+        assert len(mail.outbox) == 1
+        assert order.code in mail.outbox[0].subject
+        assert '/installment-recovery/' in mail.outbox[0].body
+
     def test_the_grace_period_is_not_pushed_back_by_a_second_failure(self, event, order, plan):
         plan.payment_token = {}
         plan.save(update_fields=['payment_token'])

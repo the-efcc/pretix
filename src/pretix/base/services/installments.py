@@ -249,6 +249,39 @@ def start_grace_period(plan: InstallmentPlan, event) -> None:
     plan.save(update_fields=['grace_period_end'])
 
 
+def send_installment_failed_mail(installment: ScheduledInstallment, plan: InstallmentPlan) -> None:
+    """
+    Tell the customer an installment could not be charged, and where to pay it instead.
+
+    Sent from every path that fails an installment for good, with the plan already in
+    its grace period: the email names the date by which the order is cancelled.
+    """
+    order = plan.order
+    event = order.event
+    with language(order.locale, event.settings.region):
+        context = get_email_context(event=event, order=order)
+        context.update({
+            'failure_reason': installment.failure_reason or '',
+            'expire_date': LazyExpiresDate(plan.grace_period_end.astimezone(event.timezone)),
+            'url': eventreverse_absolute(
+                event, 'presale:event.order.installment.recovery',
+                kwargs={'order': order.code, 'secret': order.secret}
+            ),
+        })
+        try:
+            order.send_mail(
+                event.settings.mail_subject_installment_failed,
+                event.settings.mail_text_installment_failed,
+                context,
+                'pretix.event.order.installment.failed',
+            )
+        except Exception:
+            logger.warning(
+                "Failed to send installment failure email for order %s",
+                order.code,
+            )
+
+
 def claim_installment(installment: ScheduledInstallment) -> bool:
     """
     Take exclusive ownership of an installment before charging it.
@@ -344,6 +377,12 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
             # sits ACTIVE forever, and because expire_orders skips orders with an active
             # plan, so does the order.
             start_grace_period(plan, event)
+            # And the customer has to hear about it like any other failure: paying again
+            # through the recovery page is the only way out, and they are the only one who
+            # can. A provider drops a token it knows to be dead, so this is no rarer than a
+            # decline -- a customer whose checkout payment failed ends up here.
+            if send_mail:
+                send_installment_failed_mail(installment, plan)
             return False
 
         # Build the payment up front so the provider can record what it needs to act
@@ -418,28 +457,7 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
             start_grace_period(plan, event)
 
             if send_mail:
-                with language(order.locale, event.settings.region):
-                    context = get_email_context(event=event, order=order)
-                    context.update({
-                        'failure_reason': installment.failure_reason or '',
-                        'expire_date': LazyExpiresDate(plan.grace_period_end.astimezone(event.timezone)),
-                        'url': eventreverse_absolute(
-                            event, 'presale:event.order.installment.recovery',
-                            kwargs={'order': order.code, 'secret': order.secret}
-                        ),
-                    })
-                    try:
-                        order.send_mail(
-                            event.settings.mail_subject_installment_failed,
-                            event.settings.mail_text_installment_failed,
-                            context,
-                            'pretix.event.order.installment.failed',
-                        )
-                    except Exception:
-                        logger.warning(
-                            "Failed to send installment failure email for order %s",
-                            order.code,
-                        )
+                send_installment_failed_mail(installment, plan)
 
         return success
 
