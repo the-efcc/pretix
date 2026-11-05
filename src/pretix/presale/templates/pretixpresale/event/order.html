@@ -160,14 +160,16 @@
 
                 {% if failed_installment %}
                     <div class="alert alert-danger">
-                        <strong>{% trans "Payment failed" %}</strong>
-                        {% blocktrans trimmed with amount=failed_installment.amount|money:event.currency date=installment_plan.grace_period_end|date:"SHORT_DATE_FORMAT" %}
-                            Your installment payment of {{ amount }} has failed.
-                            Please update your payment method by {{ date }} to avoid cancellation of your order.
-                        {% endblocktrans %}
+                        <p>
+                            <strong>{% trans "Payment failed" %}</strong>
+                            {% blocktrans trimmed with amount=failed_installment.amount|money:event.currency date=installment_plan.grace_period_end|date:"SHORT_DATE_FORMAT" %}
+                                Your installment payment of {{ amount }} has failed.
+                                Please update your payment method by {{ date }} to avoid cancellation of your order.
+                            {% endblocktrans %}
+                        </p>
                         {% if installment_recovery_direct %}
                             {# Nothing to fill in for this provider: go straight to it. #}
-                            <form method="post" class="text-right" style="margin-top: 10px; margin-bottom: 0;"
+                            <form method="post" class="text-right" style="margin-top: 15px; margin-bottom: 0;"
                                   action="{% url "presale:event.order.installment.recovery" event.organizer.slug event.slug order.code order.secret %}">
                                 {% csrf_token %}
                                 <input type="hidden" name="payment" value="{{ installment_recovery_provider }}">
@@ -177,7 +179,7 @@
                                 </button>
                             </form>
                         {% else %}
-                            <p class="text-right" style="margin-top: 10px; margin-bottom: 0;">
+                            <p class="text-right" style="margin-top: 15px; margin-bottom: 0;">
                                 <a href="{% url "presale:event.order.installment.recovery" event.organizer.slug event.slug order.code order.secret %}"
                                    class="btn btn-danger">
                                     <i class="fa fa-credit-card"></i>
