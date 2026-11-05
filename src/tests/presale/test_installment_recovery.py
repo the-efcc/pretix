@@ -19,18 +19,40 @@
 # You should have received a copy of the GNU Affero General Public License along with this program.  If not, see
 # <https://www.gnu.org/licenses/>.
 #
+from collections import OrderedDict
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+from django import forms
 from django.test import TestCase
 from django.utils.timezone import now
 from django_scopes import scopes_disabled
 
 from pretix.base.models import Event, Order, Organizer
 from pretix.base.models.orders import OrderPayment
-from pretix.base.payment import PaymentException
+from pretix.base.payment import BasePaymentProvider, PaymentException
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
+
+
+class FormInstallmentProvider(BasePaymentProvider):
+    """
+    A provider that leaves payment_form / payment_form_render / payment_prepare to the
+    base implementation, so the request goes through pretix's real form binding.
+    """
+    identifier = 'dummy'
+    verbose_name = 'Dummy'
+    installments_supported = True
+    execute_payment_needs_user = False
+
+    @property
+    def payment_form_fields(self):
+        return OrderedDict([
+            ('token', forms.CharField(label='Token', required=True)),
+        ])
+
+    def execute_payment(self, request, payment):
+        return None
 
 
 class TestInstallmentRecovery(TestCase):
@@ -153,6 +175,38 @@ class TestInstallmentRecovery(TestCase):
         assert response.status_code == 200
         assert 'AcquirerRef' not in response.content.decode()
         assert 'token vault' not in response.content.decode()
+
+    # -- The form talks to the provider the way pretix's own pay page does --
+
+    def test_form_names_the_provider(self):
+        # BasePaymentProvider.payment_form only binds a POST whose `payment` field is the
+        # provider's identifier; Stripe's and PayPal's JS only initialise inside
+        # .payment-redo-form.
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': self._mock_provider()}):
+            content = self.client.get(self._url()).content.decode()
+        assert '<input type="hidden" name="payment" value="dummy">' in content
+        assert 'payment-redo-form' in content
+
+    @scopes_disabled()
+    def test_post_with_a_form_based_provider_reaches_the_provider(self):
+        provider = FormInstallmentProvider(self.event)
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}), \
+                patch.object(OrderPayment, 'confirm') as confirm:
+            response = self.client.post(self._url(), {
+                'payment': 'dummy',
+                'payment_dummy-token': 'tok_new',
+            })
+        assert response.status_code == 302
+        assert confirm.called
+        assert self.client.session['payment_dummy_token'] == 'tok_new'
+
+    @scopes_disabled()
+    def test_post_with_a_form_based_provider_rejects_missing_input(self):
+        provider = FormInstallmentProvider(self.event)
+        with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
+            response = self.client.post(self._url(), {'payment': 'dummy'})
+        assert response.status_code == 200
+        assert not OrderPayment.objects.filter(order=self.order).exists()
 
     # -- The original failed charge is not lost by an abandoned recovery attempt --
 

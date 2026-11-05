@@ -53,8 +53,12 @@
         </div>
     </div>
 
-    <form method="post" class="form-horizontal">
+    <form method="post" class="form-horizontal"
+          data-total="{{ failed_installment.amount|money_numberfield:event.currency }}">
         {% csrf_token %}
+        {# Providers only bind their payment form to a POST that names them, and their #}
+        {# frontend JS (Stripe, PayPal) only loads inside .payment-redo-form. #}
+        <input type="hidden" name="payment" value="{{ installment_plan.payment_provider }}">
         <div class="panel panel-primary">
             <div class="panel-heading">
                 <h3 class="panel-title">{% trans "Update payment method" %}</h3>
@@ -73,7 +77,9 @@
                         {{ payment_form_error }}
                     </div>
                 {% elif payment_form_html %}
-                    {{ payment_form_html|safe }}
+                    <div class="form-horizontal payment-redo-form">
+                        {{ payment_form_html|safe }}
+                    </div>
                 {% else %}
                     <div class="alert alert-warning">
                         {% trans "Payment form could not be loaded. Please contact support." %}
