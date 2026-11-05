@@ -164,6 +164,24 @@ class InstallmentOrderPageTest(TestCase):
         r = self.client.get(self._url('pay/%d/' % self.payment.pk))
         assert r.status_code == 200
 
+    def test_the_payment_box_is_hidden_while_the_plan_is_active(self):
+        content = self.client.get(self._url()).content.decode()
+        assert 'href="%s"' % self._url('pay/change') not in content
+
+    @scopes_disabled()
+    def test_a_cancelled_plan_offers_the_ordinary_payment_again(self):
+        # The organizer cancelled the plan and kept the order: the open balance is to be
+        # paid the ordinary way, and /pay/change takes it, so the page has to link there.
+        self.plan.status = InstallmentPlan.STATUS_CANCELLED
+        self.plan.save(update_fields=['status'])
+        self.first.state = ScheduledInstallment.STATE_CANCELLED
+        self.first.save(update_fields=['state'])
+
+        content = self.client.get(self._url()).content.decode()
+        assert 'href="%s"' % self._url('pay/change') in content
+        assert 'The installment plan has been canceled.' in content
+        assert 'We are still waiting for your first installment payment' not in content
+
     def test_thank_you_does_not_claim_an_uncollected_first_installment(self):
         content = self.client.get(self._url() + '?thanks=1').content.decode()
         assert 'We are still waiting for your first installment payment to be confirmed.' in content

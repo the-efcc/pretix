@@ -384,6 +384,9 @@ class OrderDetails(EventViewMixin, OrderDetailMixin, CartMixin, TicketPageMixin,
             pass
         else:
             ctx['installment_plan'] = installment_plan
+            # A plan that was cancelled with its order kept leaves the order to be paid the
+            # ordinary way, and the page has to offer that again.
+            ctx['installment_plan_active'] = installment_plan.status == InstallmentPlan.STATUS_ACTIVE
             ctx['next_installment'] = installment_plan.installments.filter(
                 state=ScheduledInstallment.STATE_PENDING
             ).order_by('due_date').first()

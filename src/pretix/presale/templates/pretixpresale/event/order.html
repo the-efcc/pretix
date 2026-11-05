@@ -44,11 +44,11 @@
                         <strong>
                             {% trans "Please note that we still await approval by the event organizer before you can pay and complete this order." %}
                         </strong>
-                    {% elif installment_plan and installment_plan.installments_paid %}
+                    {% elif installment_plan_active and installment_plan.installments_paid %}
                         <strong>
                             {% trans "Your first installment has been received. The remaining installments will be charged automatically according to schedule." %}
                         </strong>
-                    {% elif installment_plan %}
+                    {% elif installment_plan_active %}
                         <strong>
                             {% trans "Your installment plan has been set up. We are still waiting for your first installment payment to be confirmed." %}
                         </strong>
@@ -93,7 +93,7 @@
         <dt class="sr-only">Status</dt>
         <dd class="text-muted">{% include "pretixpresale/event/fragment_order_status.html" with order=order event=request.event %}</dd>
     </dl>
-    {% if order.status == "n" and not order.require_approval and not installment_plan %}
+    {% if order.status == "n" and not order.require_approval and not installment_plan_active %}
         <div class="panel panel-primary">
             <div class="panel-heading">
                 <h3 class="panel-title">
@@ -142,6 +142,9 @@
                 </h3>
             </div>
             <div class="panel-body">
+                {% if not installment_plan_active %}
+                    <p class="text-muted">{% trans "The installment plan has been canceled." %}</p>
+                {% endif %}
                 <dl class="dl-horizontal">
                     <dt>{% trans "Total installments" %}</dt>
                     <dd>{{ installment_plan.total_installments }}</dd>
