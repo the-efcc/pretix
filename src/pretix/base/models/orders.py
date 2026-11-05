@@ -1936,6 +1936,14 @@ class OrderPayment(models.Model):
             # No reason to send mail, as the payment is no longer really expected
             send_mail = False
 
+        # efcc: a failed payment for a pending installment fails the installment, which tells
+        # the customer itself -- with the recovery link this email has no way to give them.
+        from pretix.base.services.installments import (
+            fail_installment_of_failed_payment,
+        )
+        if fail_installment_of_failed_payment(self, send_mail=send_mail):
+            send_mail = False
+
         if send_mail:
             with language(self.order.locale, self.order.event.settings.region):
                 email_subject = self.order.event.settings.mail_subject_order_payment_failed

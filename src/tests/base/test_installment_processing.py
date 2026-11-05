@@ -425,21 +425,12 @@ class TestProcessDueInstallmentsAfterCheckout:
         assert order.status == Order.STATUS_PENDING
         assert not order.valid_if_pending
 
-    def test_order_becomes_valid_when_the_failed_first_installment_is_charged(self, event, order):
-        provider = _mock_provider()
-        plan = self._real_plan(event, order, provider)
-        plan.payment_token = {'token': 'tok_123'}
-        plan.save(update_fields=['payment_token'])
-
-        with _patch_providers(provider):
-            with scope(organizer=event.organizer):
-                order.payments.get().fail(send_mail=False)
-                process_due_installments()
-
-        order.refresh_from_db()
-        assert order.valid_if_pending
-
-    def test_charges_the_first_installment_once_its_payment_has_failed(self, event, order):
+    def test_a_failed_checkout_payment_fails_the_first_installment(self, event, order):
+        """
+        The customer cancelled or was declined at checkout. The processor used to charge
+        installment 1 automatically on its next run, as soon as a plan had a token;
+        now it fails with its payment, and is the customer's to pay through recovery.
+        """
         provider = _mock_provider()
         plan = self._real_plan(event, order, provider)
         plan.payment_token = {'token': 'tok_123'}
@@ -452,8 +443,30 @@ class TestProcessDueInstallmentsAfterCheckout:
 
         with scope(organizer=event.organizer):
             first = plan.installments.get(installment_number=1)
+        plan.refresh_from_db()
+        assert first.state == ScheduledInstallment.STATE_FAILED
+        assert first.failure_reason == 'The payment was not completed.'
+        assert plan.grace_period_end is not None
+        assert provider.execute_installment.call_count == 0
+
+    def test_order_becomes_valid_when_the_failed_first_installment_is_retried(self, event, order):
+        """The organizer can still charge it from the control panel."""
+        provider = _mock_provider()
+        plan = self._real_plan(event, order, provider)
+        plan.payment_token = {'token': 'tok_123'}
+        plan.save(update_fields=['payment_token'])
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                order.payments.get().fail(send_mail=False)
+                first = plan.installments.get(installment_number=1)
+                assert process_single_installment(first) is True
+
+        first.refresh_from_db()
+        order.refresh_from_db()
         assert provider.execute_installment.call_count == 1
         assert first.state == ScheduledInstallment.STATE_PAID
+        assert order.valid_if_pending
 
     def test_later_installments_are_still_charged_on_their_due_date(self, event, order):
         provider = _mock_provider()
@@ -694,26 +707,50 @@ class TestAbandonedPlansWindDown:
 
     def test_an_abandoned_checkout_tells_the_customer_where_to_pay(self, event, order):
         """
-        The checkout payment failed and the plan holds no token: none was stored, or
-        the provider took back one it knew would never work. Paying again through the
-        recovery page is the only way out, so the customer has to hear about it now,
-        not from the grace-period warning a day before the order is cancelled.
+        The checkout payment failed. The customer hears about it at once, with the
+        recovery link: pretix's generic "payment failed" email sends them to an order
+        page that, for an installment order, offers no way to pay.
         """
         provider = _mock_provider()
         with _patch_providers(provider):
             with scope(organizer=event.organizer):
                 create_installment_plan(order, 'dummy', installments_count=3)
-                order.payments.get().fail(send_mail=False)
                 mail.outbox = []
+                order.payments.get().fail()
 
+                assert len(mail.outbox) == 1
+                assert order.code in mail.outbox[0].subject
+                assert 'Payment failed for your order' not in mail.outbox[0].subject
+                assert '/installment-recovery/' in mail.outbox[0].body
+                assert 'Reason: The payment was not completed.' in mail.outbox[0].body
+
+                # Nor does the next processor run charge it, or say it all again.
                 process_due_installments()
 
         provider.execute_installment.assert_not_called()
         assert len(mail.outbox) == 1
-        assert order.code in mail.outbox[0].subject
-        assert '/installment-recovery/' in mail.outbox[0].body
-        # The reason is quoted to the customer, so it has to read as a sentence to them.
-        assert 'Reason: No saved payment method is available.' in mail.outbox[0].body
+
+    def test_a_failed_recovery_payment_gets_the_usual_email(self, event, order, plan):
+        """
+        The installment has already failed and the customer is on the recovery page;
+        pretix's own email, pointing at the order page and its recovery link, is right.
+        """
+        inst = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_FAILED,
+        )
+        with scope(organizer=event.organizer):
+            payment = order.payments.create(
+                provider='dummy', amount=Decimal('100.00'), state=OrderPayment.PAYMENT_STATE_CREATED,
+            )
+            inst.payment = payment
+            inst.save(update_fields=['payment'])
+            mail.outbox = []
+
+            payment.fail()
+
+        assert len(mail.outbox) == 1
+        assert 'Payment failed for your order' in mail.outbox[0].subject
 
     def test_a_retry_without_a_token_sends_no_mail(self, event, order, plan):
         """The control panel's retry button stays quiet, as it does for a decline."""
