@@ -283,6 +283,64 @@ def send_installment_failed_mail(installment: ScheduledInstallment, plan: Instal
             )
 
 
+def fail_installment_of_failed_payment(payment: OrderPayment, send_mail: bool = True) -> bool:
+    """
+    Fail the scheduled installment a customer's own payment was for, now that it failed.
+
+    Installment 1 is paid by the customer at checkout, so it is created pointing at that
+    payment and the processor leaves it alone while the payment is live. When the payment
+    failed, the installment used to stay pending until the processor's next run charged it
+    automatically -- for an order whose customer had just cancelled or been declined. In the
+    meantime the customer got the generic "payment failed" email, telling them to pay again
+    on an order page that offers no way to: an installment order has no payment button, and
+    no recovery link until an installment has failed.
+
+    So the installment fails with its payment. The grace period starts, and the customer
+    gets the installment email with the recovery link instead of the generic one.
+
+    Only a pending installment of an active plan is affected. An automatic charge is in
+    ``processing`` while it runs and reports its own failure; a recovery payment belongs to
+    an installment that has already failed.
+
+    :param payment: The payment that just failed
+    :param send_mail: Whether to notify the customer
+    :return: True if the payment was such an installment's; the caller then sends no email
+             of its own
+    """
+    with scopes_disabled():
+        installment = ScheduledInstallment.objects.select_related(
+            'plan', 'plan__order', 'plan__order__event'
+        ).filter(
+            payment=payment,
+            state=ScheduledInstallment.STATE_PENDING,
+            plan__status=InstallmentPlan.STATUS_ACTIVE,
+        ).first()
+        if installment is None:
+            return False
+
+        plan = installment.plan
+        order = plan.order
+        event = order.event
+        with language(order.locale, event.settings.region):
+            # In the customer's language: the failure email quotes it to them.
+            reason = _('The payment was not completed.')
+
+        # Conditional on the state, so a processor run claiming this very installment at the
+        # same moment keeps it -- and reports the failure, email included, itself.
+        failed = ScheduledInstallment.objects.filter(
+            pk=installment.pk, state=ScheduledInstallment.STATE_PENDING,
+        ).update(state=ScheduledInstallment.STATE_FAILED, failure_reason=reason, processed_at=now())
+        if not failed:
+            return True
+
+        installment.state = ScheduledInstallment.STATE_FAILED
+        installment.failure_reason = reason
+        start_grace_period(plan, event)
+        if send_mail:
+            send_installment_failed_mail(installment, plan)
+    return True
+
+
 def claim_installment(installment: ScheduledInstallment) -> bool:
     """
     Take exclusive ownership of an installment before charging it.
