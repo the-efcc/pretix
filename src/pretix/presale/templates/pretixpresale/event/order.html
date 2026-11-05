@@ -190,6 +190,11 @@
                                 </a>
                             </p>
                         {% endif %}
+                        <p class="text-right" style="margin-top: 10px; margin-bottom: 0;">
+                            <a href="{% url "presale:event.order.installment.pay_in_full" event.organizer.slug event.slug order.code order.secret %}">
+                                {% trans "Pay the full amount instead" %}
+                            </a>
+                        </p>
                     </div>
                 {% endif %}
 
