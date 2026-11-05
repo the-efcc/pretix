@@ -441,6 +441,21 @@ class OrderPaymentStart(EventViewMixin, OrderDetailMixin, TemplateView):
         if resp:
             return resp
 
+        # efcc: a payment that recovers a failed installment belongs to the recovery page, which
+        # knows which installment it settles and what the grace period is. Providers send the
+        # customer back here when they cancel or are declined at a hosted payment page; the
+        # recovery page picks the same payment up again. A plan's first installment, retried from
+        # checkout, is still pending and keeps using this page.
+        if ScheduledInstallment.objects.filter(
+            payment=self.payment,
+            state=ScheduledInstallment.STATE_FAILED,
+            plan__status=InstallmentPlan.STATUS_ACTIVE,
+        ).exists():
+            return redirect(eventreverse(self.request.event, 'presale:event.order.installment.recovery', kwargs={
+                'order': self.order.code,
+                'secret': self.order.secret,
+            }))
+
         if (self.order.status not in (Order.STATUS_PENDING, Order.STATUS_EXPIRED)
                 or self.payment.state != OrderPayment.PAYMENT_STATE_CREATED
                 or not self.payment.payment_provider.is_enabled

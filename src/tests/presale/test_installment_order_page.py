@@ -139,6 +139,31 @@ class InstallmentOrderPageTest(TestCase):
             content = self.client.get(self._url()).content.decode()
         assert 'href="%s"' % self._url('installment-recovery/') in content
 
+    def test_retrying_a_recovery_payment_goes_back_to_recovery(self):
+        # A hosted payment page returns a cancelled or declined customer to the regular
+        # retry page for the payment; for a failed installment that is the recovery page.
+        self._fail_first_installment()
+        r = self.client.get(self._url('pay/%d/' % self.payment.pk))
+        self.assertRedirects(r, self._url('installment-recovery/'), fetch_redirect_response=False)
+        r = self.client.post(self._url('pay/%d/' % self.payment.pk), {'payment': 'testdummy'})
+        self.assertRedirects(r, self._url('installment-recovery/'), fetch_redirect_response=False)
+        with scopes_disabled():
+            self.payment.refresh_from_db()
+            assert self.payment.state == OrderPayment.PAYMENT_STATE_CREATED
+
+    def test_retrying_the_first_installment_keeps_the_regular_page(self):
+        r = self.client.get(self._url('pay/%d/' % self.payment.pk))
+        assert r.status_code == 200
+
+    @scopes_disabled()
+    def test_retrying_after_the_plan_is_cancelled_keeps_the_regular_page(self):
+        self.first.state = ScheduledInstallment.STATE_FAILED
+        self.first.save(update_fields=['state'])
+        self.plan.status = InstallmentPlan.STATUS_CANCELLED
+        self.plan.save(update_fields=['status'])
+        r = self.client.get(self._url('pay/%d/' % self.payment.pk))
+        assert r.status_code == 200
+
     def test_thank_you_does_not_claim_an_uncollected_first_installment(self):
         content = self.client.get(self._url() + '?thanks=1').content.decode()
         assert 'We are still waiting for your first installment payment to be confirmed.' in content
