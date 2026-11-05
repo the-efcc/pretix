@@ -21,10 +21,13 @@
 #
 from datetime import timedelta
 from decimal import Decimal
+from unittest.mock import PropertyMock, patch
 
+from django import forms
 from django.test import TestCase
 from django.utils.timezone import now
 from django_scopes import scopes_disabled
+from tests.testdummy.payment import DummyPaymentProvider
 
 from pretix.base.models import (
     Event, Item, Order, OrderPosition, Organizer, Quota,
@@ -105,6 +108,36 @@ class InstallmentOrderPageTest(TestCase):
 
         r = self.client.get(self._url('pay/change'))
         assert r.status_code == 200
+
+    @scopes_disabled()
+    def _fail_first_installment(self):
+        self.first.state = ScheduledInstallment.STATE_FAILED
+        self.first.save(update_fields=['state'])
+
+    def test_recovery_goes_straight_to_a_provider_with_nothing_to_fill_in(self):
+        # A hosted-payment-page provider has no form fields: an intermediate recovery
+        # page would hold nothing but a second "Update payment method" button.
+        self._fail_first_installment()
+        content = self.client.get(self._url()).content.decode()
+        assert 'action="%s"' % self._url('installment-recovery/') in content
+        assert '<input type="hidden" name="payment" value="testdummy">' in content
+        assert 'href="%s"' % self._url('installment-recovery/') not in content
+
+    def test_recovery_page_is_shown_when_the_provider_asks_for_input(self):
+        self._fail_first_installment()
+        fields = {'card': forms.CharField(label='Card')}
+        with patch.object(DummyPaymentProvider, 'payment_form_fields', new_callable=PropertyMock,
+                          return_value=fields):
+            content = self.client.get(self._url()).content.decode()
+        assert 'href="%s"' % self._url('installment-recovery/') in content
+        assert 'action="%s"' % self._url('installment-recovery/') not in content
+
+    def test_recovery_page_is_shown_when_the_provider_cannot_be_inspected(self):
+        self._fail_first_installment()
+        with patch.object(DummyPaymentProvider, 'payment_form_fields', new_callable=PropertyMock,
+                          side_effect=RuntimeError('boom')):
+            content = self.client.get(self._url()).content.decode()
+        assert 'href="%s"' % self._url('installment-recovery/') in content
 
     def test_thank_you_does_not_claim_an_uncollected_first_installment(self):
         content = self.client.get(self._url() + '?thanks=1').content.decode()

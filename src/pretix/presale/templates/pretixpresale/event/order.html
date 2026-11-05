@@ -165,13 +165,26 @@
                             Your installment payment of {{ amount }} has failed.
                             Please update your payment method by {{ date }} to avoid cancellation of your order.
                         {% endblocktrans %}
-                        <p class="text-right" style="margin-top: 10px; margin-bottom: 0;">
-                            <a href="{% url "presale:event.order.installment.recovery" event.organizer.slug event.slug order.code order.secret %}"
-                               class="btn btn-danger">
-                                <i class="fa fa-credit-card"></i>
-                                {% trans "Update payment method" %}
-                            </a>
-                        </p>
+                        {% if installment_recovery_direct %}
+                            {# Nothing to fill in for this provider: go straight to it. #}
+                            <form method="post" class="text-right" style="margin-top: 10px; margin-bottom: 0;"
+                                  action="{% url "presale:event.order.installment.recovery" event.organizer.slug event.slug order.code order.secret %}">
+                                {% csrf_token %}
+                                <input type="hidden" name="payment" value="{{ installment_recovery_provider }}">
+                                <button type="submit" class="btn btn-danger">
+                                    <i class="fa fa-credit-card"></i>
+                                    {% trans "Update payment method" %}
+                                </button>
+                            </form>
+                        {% else %}
+                            <p class="text-right" style="margin-top: 10px; margin-bottom: 0;">
+                                <a href="{% url "presale:event.order.installment.recovery" event.organizer.slug event.slug order.code order.secret %}"
+                                   class="btn btn-danger">
+                                    <i class="fa fa-credit-card"></i>
+                                    {% trans "Update payment method" %}
+                                </a>
+                            </p>
+                        {% endif %}
                     </div>
                 {% endif %}
 
