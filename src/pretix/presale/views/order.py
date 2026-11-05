@@ -390,6 +390,12 @@ class OrderDetails(EventViewMixin, OrderDetailMixin, CartMixin, TicketPageMixin,
             ctx['failed_installment'] = installment_plan.installments.filter(
                 state=ScheduledInstallment.STATE_FAILED
             ).order_by('due_date').first()
+            if ctx['failed_installment']:
+                provider = self.request.event.get_payment_providers().get(installment_plan.payment_provider)
+                ctx['installment_recovery_direct'] = (
+                    provider is not None and not installment_recovery_needs_input(provider)
+                )
+                ctx['installment_recovery_provider'] = installment_plan.payment_provider
             ctx['installment_history'] = installment_plan.installments.filter(
                 state=ScheduledInstallment.STATE_PAID
             ).order_by('installment_number')
@@ -1853,6 +1859,22 @@ class OrderPositionChange(OrderChangeMixin, EventViewMixin, OrderPositionDetailM
 
     def get_hide_prices(self):
         return self.request.event.settings.hide_prices_from_attendees
+
+
+def installment_recovery_needs_input(provider) -> bool:
+    """
+    Whether the customer has anything to fill in on the installment recovery page.
+
+    Providers that hand off to a hosted payment page (PostFinance, for one) have no
+    form fields, and the recovery page then holds nothing but a button. The order
+    page posts straight to recovery for those instead of making the customer click
+    through an empty step. Anything we cannot inspect keeps the page.
+    """
+    try:
+        return bool(provider.payment_form_fields)
+    except Exception:
+        logger.exception('Could not inspect the payment form of %s', provider)
+        return True
 
 
 @method_decorator(xframe_options_exempt, 'dispatch')
