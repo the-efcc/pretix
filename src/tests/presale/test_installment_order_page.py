@@ -173,7 +173,8 @@ class InstallmentOrderPageTest(TestCase):
         # The organizer cancelled the plan and kept the order: the open balance is to be
         # paid the ordinary way, and /pay/change takes it, so the page has to link there.
         self.plan.status = InstallmentPlan.STATUS_CANCELLED
-        self.plan.save(update_fields=['status'])
+        self.plan.installments_paid = 1
+        self.plan.save(update_fields=['status', 'installments_paid'])
         self.first.state = ScheduledInstallment.STATE_CANCELLED
         self.first.save(update_fields=['state'])
 

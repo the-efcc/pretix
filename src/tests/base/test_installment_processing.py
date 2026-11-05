@@ -39,7 +39,7 @@ from pretix.base.services.installments import (
     process_single_installment, send_grace_period_warnings,
     send_installment_reminders,
 )
-from pretix.base.services.orders import cancel_order
+from pretix.base.services.orders import cancel_order, expire_orders
 from pretix.base.templatetags.money import money_filter
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
@@ -425,11 +425,12 @@ class TestProcessDueInstallmentsAfterCheckout:
         assert order.status == Order.STATUS_PENDING
         assert not order.valid_if_pending
 
-    def test_a_failed_checkout_payment_fails_the_first_installment(self, event, order):
+    def test_a_failed_checkout_payment_stops_the_plan(self, event, order):
         """
-        The customer cancelled or was declined at checkout. The processor used to charge
-        installment 1 automatically on its next run, as soon as a plan had a token;
-        now it fails with its payment, and is the customer's to pay through recovery.
+        The customer cancelled or was declined at checkout, so nothing was collected: the
+        plan stops as never started, and the order is an ordinary unpaid one again. The
+        processor charges nothing, and no grace period starts: the order's own expiry
+        date applies.
         """
         provider = _mock_provider()
         plan = self._real_plan(event, order, provider)
@@ -442,31 +443,19 @@ class TestProcessDueInstallmentsAfterCheckout:
                 process_due_installments()
 
         with scope(organizer=event.organizer):
-            first = plan.installments.get(installment_number=1)
+            states = dict(plan.installments.values_list('installment_number', 'state'))
         plan.refresh_from_db()
-        assert first.state == ScheduledInstallment.STATE_FAILED
-        assert first.failure_reason == 'The payment was not completed.'
-        assert plan.grace_period_end is not None
+        assert plan.status == InstallmentPlan.STATUS_FAILED
+        assert plan.payment_token == {}
+        assert plan.grace_period_end is None
+        assert states == {
+            1: ScheduledInstallment.STATE_FAILED,
+            2: ScheduledInstallment.STATE_CANCELLED,
+            3: ScheduledInstallment.STATE_CANCELLED,
+        }
         assert provider.execute_installment.call_count == 0
-
-    def test_order_becomes_valid_when_the_failed_first_installment_is_retried(self, event, order):
-        """The organizer can still charge it from the control panel."""
-        provider = _mock_provider()
-        plan = self._real_plan(event, order, provider)
-        plan.payment_token = {'token': 'tok_123'}
-        plan.save(update_fields=['payment_token'])
-
-        with _patch_providers(provider):
-            with scope(organizer=event.organizer):
-                order.payments.get().fail(send_mail=False)
-                first = plan.installments.get(installment_number=1)
-                assert process_single_installment(first) is True
-
-        first.refresh_from_db()
-        order.refresh_from_db()
-        assert provider.execute_installment.call_count == 1
-        assert first.state == ScheduledInstallment.STATE_PAID
-        assert order.valid_if_pending
+        # The token the failed payment left behind is no use to anyone.
+        provider.revoke_payment_token.assert_called_once()
 
     def test_later_installments_are_still_charged_on_their_due_date(self, event, order):
         provider = _mock_provider()
@@ -676,40 +665,33 @@ class TestAbandonedPlansWindDown:
         assert inst.state == ScheduledInstallment.STATE_FAILED
         assert plan.grace_period_end is not None
 
-    def test_an_abandoned_checkout_eventually_cancels_the_order(self, event, order):
+    def test_an_abandoned_checkout_expires_like_any_unpaid_order(self, event, order):
         """
-        The customer never came back from the payment page: the checkout payment failed
-        and no token was ever stored. The plan has to wind down on its own.
+        The customer never came back from the payment page: the checkout payment failed.
+        With the plan stopped, the order is no longer kept out of expiry, and expires on
+        its own date like any other unpaid order.
         """
+        event.settings.payment_term_expire_automatically = True
         provider = _mock_provider()
         with _patch_providers(provider):
             with scope(organizer=event.organizer):
                 plan = create_installment_plan(order, 'dummy', installments_count=3)
                 order.payments.get().fail(send_mail=False)
+                order.expires = now() - timedelta(minutes=1)
+                order.save(update_fields=['expires'])
 
-                process_due_installments()
-
-        plan.refresh_from_db()
-        assert plan.grace_period_end is not None
-
-        # Wind the clock past the grace period and let the sweep run.
-        plan.grace_period_end = now() - timedelta(minutes=1)
-        plan.save(update_fields=['grace_period_end'])
-
-        with _patch_providers(provider):
-            with scope(organizer=event.organizer):
-                process_expired_plans()
+                expire_orders(None)
 
         plan.refresh_from_db()
         order.refresh_from_db()
-        assert plan.status == InstallmentPlan.STATUS_CANCELLED
-        assert order.status == Order.STATUS_CANCELED
+        assert plan.status == InstallmentPlan.STATUS_FAILED
+        assert order.status == Order.STATUS_EXPIRED
 
-    def test_an_abandoned_checkout_tells_the_customer_where_to_pay(self, event, order):
+    def test_an_abandoned_checkout_gets_the_ordinary_payment_failed_email(self, event, order):
         """
-        The checkout payment failed. The customer hears about it at once, with the
-        recovery link: pretix's generic "payment failed" email sends them to an order
-        page that, for an installment order, offers no way to pay.
+        The checkout payment failed. The order is an ordinary unpaid one again, so the
+        customer gets pretix's ordinary "payment failed" email: its link leads to the order
+        page, which offers to pay again -- at once, or in installments.
         """
         provider = _mock_provider()
         with _patch_providers(provider):
@@ -719,16 +701,42 @@ class TestAbandonedPlansWindDown:
                 order.payments.get().fail()
 
                 assert len(mail.outbox) == 1
-                assert order.code in mail.outbox[0].subject
-                assert 'Payment failed for your order' not in mail.outbox[0].subject
-                assert '/installment-recovery/' in mail.outbox[0].body
-                assert 'Reason: The payment was not completed.' in mail.outbox[0].body
+                assert 'Payment failed for your order' in mail.outbox[0].subject
+                assert '/installment-recovery/' not in mail.outbox[0].body
 
-                # Nor does the next processor run charge it, or say it all again.
+                # Nor does the next processor run charge it, or say anything more.
                 process_due_installments()
 
         provider.execute_installment.assert_not_called()
         assert len(mail.outbox) == 1
+
+    def test_a_failed_payment_of_a_running_plan_still_fails_its_installment(self, event, order, plan):
+        """
+        Once a plan has collected an installment, a pending installment whose own payment
+        fails fails with it, and starts the grace period.
+        """
+        plan.installments_paid = 1
+        plan.save(update_fields=['installments_paid'])
+        with scope(organizer=event.organizer):
+            payment = order.payments.create(
+                provider='dummy', amount=Decimal('100.00'), state=OrderPayment.PAYMENT_STATE_CREATED,
+            )
+        inst = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() + timedelta(days=1), state=ScheduledInstallment.STATE_PENDING, payment=payment,
+        )
+        mail.outbox = []
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                payment.fail()
+
+        inst.refresh_from_db()
+        plan.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_FAILED
+        assert plan.status == InstallmentPlan.STATUS_ACTIVE
+        assert plan.grace_period_end is not None
+        assert len(mail.outbox) == 1
+        assert '/installment-recovery/' in mail.outbox[0].body
 
     def test_a_failed_recovery_payment_gets_the_usual_email(self, event, order, plan):
         """

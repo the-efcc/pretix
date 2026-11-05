@@ -1,0 +1,37 @@
+{% load i18n %}
+{% load money %}
+{# The choice to pay in installments, shared by checkout and the ordinary payment page. #}
+{# Payment methods are marked with data-payment-provider and data-installments-available, #}
+{# which ui/installments.js uses to show only those that support installments. #}
+{% if installments_available %}
+    <div class="panel panel-default">
+        <div class="panel-body">
+            <div class="checkbox" style="margin-top: 0; margin-bottom: 15px;">
+                <label for="pay_in_installments">
+                    <input type="checkbox" name="pay_in_installments" id="pay_in_installments"
+                           {% if pay_in_installments %}checked="checked"{% endif %}>
+                    <strong>{% trans "Pay in installments" %}</strong>
+                </label>
+            </div>
+            <div id="installments_count_group" {% if not pay_in_installments %}hidden{% endif %}>
+                <label for="installments_count">
+                    <strong>{% trans "Payment plan" %}</strong>
+                </label>
+                <select name="installments_count"
+                        id="installments_count"
+                        class="form-control"
+                        style="max-width: 400px;"
+                        {% if not pay_in_installments %}disabled{% endif %}>
+                    {% for option in installment_options %}
+                        <option value="{{ option.count }}" {% if selected_installments_count == option.count %}selected{% endif %}>
+                            {# Not trimmed, and indented as it was in checkout_payment.html: the whitespace is part of the translated message. #}
+                            {% blocktrans with count=option.count amount=option.amount|money:request.event.currency %}
+                                            {{ count }} monthly installments of approx. {{ amount }}
+                                        {% endblocktrans %}
+                        </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+    </div>
+{% endif %}

@@ -204,6 +204,16 @@ def create_installment_plan(
         process_initiated=False,
     )
 
+    _schedule_installments(plan, amounts, first_payment_amount, payment)
+    return plan
+
+
+def _schedule_installments(plan: InstallmentPlan, amounts: List[Decimal], first_payment_amount: Decimal,
+                           payment: OrderPayment) -> None:
+    """
+    Lay out a plan's installments: the first, due now and paid by ``payment`` (whose amount
+    carries the payment fee), and one more each month after it.
+    """
     ScheduledInstallment.objects.create(
         plan=plan,
         installment_number=1,
@@ -223,6 +233,99 @@ def create_installment_plan(
             state=ScheduledInstallment.STATE_PENDING
         )
 
+
+def plan_not_started(plan: InstallmentPlan) -> bool:
+    """
+    Whether a plan has collected nothing yet, and so is still only a choice of how to pay.
+
+    The customer can change that choice -- pay at once, or in a different number of
+    installments -- as long as no installment has been paid: there is nothing to unwind.
+    """
+    return plan.installments_paid == 0 and not plan.installments.filter(
+        state=ScheduledInstallment.STATE_PAID
+    ).exists()
+
+
+def installments_available_for_order(order: Order, provider, amount: Decimal) -> bool:
+    """
+    Whether an existing order may switch to paying in installments with ``provider``.
+
+    The same conditions as at checkout, with the number of installments counted from
+    today rather than from when the order was placed, and only for an order that is still
+    awaiting payment and has no installment collected: a plan with money in it is not
+    one to start again.
+    """
+    if order.status != Order.STATUS_PENDING:
+        return False
+    try:
+        plan = order.installment_plan
+    except InstallmentPlan.DoesNotExist:
+        pass
+    else:
+        if not plan_not_started(plan):
+            return False
+    return installments_available_for_event(order.event, provider, amount)
+
+
+@transaction.atomic
+def set_up_installment_plan(order: Order, provider_name: str, installments_count: int,
+                            payment: OrderPayment) -> InstallmentPlan:
+    """
+    Have an existing order paid in installments, starting with ``payment``.
+
+    ``payment`` is the payment the ordinary payment page has just created for the order's
+    open balance, its fee included, as at checkout. It becomes the first installment,
+    carrying the fee; the rest of the balance is split into the remaining installments.
+
+    An order has at most one plan. A plan that never started -- its first payment failed,
+    nothing was collected -- is set up afresh with the customer's new choice. Its old
+    schedule goes: the failed payments stay on the order, which is what records them.
+
+    :raises ValueError: If installments are not available for this order and provider
+    """
+    event = order.event
+    provider = event.get_payment_providers().get(provider_name)
+    if not provider or not installments_available_for_order(order, provider, payment.amount):
+        raise ValueError(f"Installments are not available for order {order.code} with '{provider_name}'.")
+
+    max_allowed = get_max_installments_for_event(event)
+    if installments_count < 2 or installments_count > max_allowed:
+        raise ValueError(
+            f"Requested {installments_count} installments, but only up to {max_allowed} are allowed "
+            f"based on the event date."
+        )
+
+    fee_value = payment.fee.value if payment.fee is not None else Decimal('0.00')
+    amounts = calculate_installment_amounts(payment.amount - fee_value, installments_count)
+
+    try:
+        plan = InstallmentPlan.objects.select_for_update().get(order=order)
+    except InstallmentPlan.DoesNotExist:
+        plan = InstallmentPlan.objects.create(
+            order=order,
+            payment_provider=provider_name,
+            payment_token={},
+            total_installments=installments_count,
+            installments_paid=0,
+            amount_per_installment=amounts[0],
+            status=InstallmentPlan.STATUS_ACTIVE,
+        )
+    else:
+        plan.installments.all().delete()
+        plan.payment_provider = provider_name
+        plan.payment_token = {}
+        plan.total_installments = installments_count
+        plan.installments_paid = 0
+        plan.amount_per_installment = amounts[0]
+        plan.status = InstallmentPlan.STATUS_ACTIVE
+        plan.grace_period_end = None
+        plan.grace_warning_sent = False
+        plan.save()
+
+    first_payment_amount = amounts[0] + fee_value
+    payment.amount = first_payment_amount
+    payment.save(update_fields=['amount'])
+    _schedule_installments(plan, amounts, first_payment_amount, payment)
     return plan
 
 
@@ -285,18 +388,20 @@ def send_installment_failed_mail(installment: ScheduledInstallment, plan: Instal
 
 def fail_installment_of_failed_payment(payment: OrderPayment, send_mail: bool = True) -> bool:
     """
-    Fail the scheduled installment a customer's own payment was for, now that it failed.
+    Act on the failure of a customer's own payment for a pending installment.
 
     Installment 1 is paid by the customer at checkout, so it is created pointing at that
-    payment and the processor leaves it alone while the payment is live. When the payment
-    failed, the installment used to stay pending until the processor's next run charged it
-    automatically -- for an order whose customer had just cancelled or been declined. In the
-    meantime the customer got the generic "payment failed" email, telling them to pay again
-    on an order page that offers no way to: an installment order has no payment button, and
-    no recovery link until an installment has failed.
+    payment and the processor leaves it alone while the payment is live. When that payment
+    fails, nothing has been collected: the plan was only the customer's choice of how to
+    pay, and the order is simply unpaid. So the plan stops, as never started -- its status
+    ``failed``, its installments failed or cancelled, its token cleared -- and the order is
+    an ordinary unpaid order again: its own expiry date applies, pretix's ordinary "payment
+    failed" email goes out, and the order page sends the customer to the ordinary payment
+    page, where they can pay at once or set up installments again.
 
-    So the installment fails with its payment. The grace period starts, and the customer
-    gets the installment email with the recovery link instead of the generic one.
+    Once a plan has collected an installment, a pending one whose payment fails fails with
+    it: the grace period starts, and the customer gets the installment email with the
+    recovery link instead of the generic one.
 
     Only a pending installment of an active plan is affected. An automatic charge is in
     ``processing`` while it runs and reports its own failure; a recovery payment belongs to
@@ -304,8 +409,8 @@ def fail_installment_of_failed_payment(payment: OrderPayment, send_mail: bool = 
 
     :param payment: The payment that just failed
     :param send_mail: Whether to notify the customer
-    :return: True if the payment was such an installment's; the caller then sends no email
-             of its own
+    :return: True if the customer is notified here or by the processor, and the caller
+             should send no email of its own
     """
     with scopes_disabled():
         installment = ScheduledInstallment.objects.select_related(
@@ -321,6 +426,7 @@ def fail_installment_of_failed_payment(payment: OrderPayment, send_mail: bool = 
         plan = installment.plan
         order = plan.order
         event = order.event
+        not_started = plan_not_started(plan)
         with language(order.locale, event.settings.region):
             # In the customer's language: the failure email quotes it to them.
             reason = _('The payment was not completed.')
@@ -335,10 +441,45 @@ def fail_installment_of_failed_payment(payment: OrderPayment, send_mail: bool = 
 
         installment.state = ScheduledInstallment.STATE_FAILED
         installment.failure_reason = reason
+
+        if not_started:
+            _stop_plan_that_never_started(plan)
+            return False
+
         start_grace_period(plan, event)
         if send_mail:
             send_installment_failed_mail(installment, plan)
     return True
+
+
+def _stop_plan_that_never_started(plan: InstallmentPlan) -> None:
+    """
+    Stop a plan whose first payment failed, leaving its order an ordinary unpaid one.
+
+    The token, if the first payment left one, is revoked and cleared: nothing will be
+    charged against it, and a new plan for the order gets a token of its own. Revoking is
+    a network call, so it happens after the plan is stopped, and a failure to revoke only
+    gets logged.
+    """
+    with transaction.atomic():
+        token = plan.payment_token
+        plan.status = InstallmentPlan.STATUS_FAILED
+        plan.payment_token = {}
+        plan.save(update_fields=['status', 'payment_token'])
+        plan.installments.filter(
+            state__in=(ScheduledInstallment.STATE_PENDING, ScheduledInstallment.STATE_PROCESSING),
+        ).update(state=ScheduledInstallment.STATE_CANCELLED)
+
+    if token:
+        provider = plan.order.event.get_payment_providers().get(plan.payment_provider)
+        if provider:
+            plan.payment_token = token
+            try:
+                provider.revoke_payment_token(plan)
+            except Exception:
+                logger.warning("Failed to revoke payment token for plan %s", plan.pk)
+            finally:
+                plan.payment_token = {}
 
 
 def claim_installment(installment: ScheduledInstallment) -> bool:
