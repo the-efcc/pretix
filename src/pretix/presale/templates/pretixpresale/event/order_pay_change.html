@@ -27,9 +27,12 @@
         {% if event.settings.payment_explanation %}
             {{ event.settings.payment_explanation|rich_text }}
         {% endif %}
+        {% include "pretixpresale/event/fragment_installment_choice.html" %}
         <div class="panel-group" id="payment_accordion">
             {% for p in providers %}
-                <fieldset class="panel panel-default accordion-panel" data-total="{{ p.total|money_numberfield:request.event.currency }}">
+                <fieldset class="panel panel-default accordion-panel" data-total="{{ p.total|money_numberfield:request.event.currency }}"
+                          data-payment-provider
+                          data-installments-available="{{ p.installments_available|yesno:'true,false' }}">
                     <legend class="accordion-radio">
                         <label class="panel-heading">
                             <span class="panel-title">
