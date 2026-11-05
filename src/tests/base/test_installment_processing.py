@@ -712,6 +712,8 @@ class TestAbandonedPlansWindDown:
         assert len(mail.outbox) == 1
         assert order.code in mail.outbox[0].subject
         assert '/installment-recovery/' in mail.outbox[0].body
+        # The reason is quoted to the customer, so it has to read as a sentence to them.
+        assert 'Reason: No saved payment method is available.' in mail.outbox[0].body
 
     def test_a_retry_without_a_token_sends_no_mail(self, event, order, plan):
         """The control panel's retry button stays quiet, as it does for a decline."""

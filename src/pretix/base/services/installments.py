@@ -30,6 +30,7 @@ from dateutil.relativedelta import relativedelta
 from django.db import models, transaction
 from django.dispatch import receiver
 from django.utils.timezone import now
+from django.utils.translation import gettext as _
 from django_scopes import scopes_disabled
 
 from pretix.base.email import get_email_context
@@ -369,7 +370,9 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
                 installment.pk, order.code,
             )
             installment.state = ScheduledInstallment.STATE_FAILED
-            installment.failure_reason = "No payment token available"
+            # In the customer's language: the failure email quotes it to them.
+            with language(order.locale, event.settings.region):
+                installment.failure_reason = _('No saved payment method is available.')
             installment.processed_at = now()
             installment.save(update_fields=['state', 'failure_reason', 'processed_at'])
             # A missing token is a dead end -- there is nothing to retry with -- so this
