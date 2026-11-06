@@ -38,7 +38,7 @@ from pretix.base.i18n import (
     LazyCurrencyNumber, LazyDate, LazyExpiresDate, language,
 )
 from pretix.base.models import Order, OrderFee, OrderPayment, Quota
-from pretix.base.signals import order_canceled, periodic_task
+from pretix.base.signals import order_canceled, order_paid, periodic_task
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 from pretix.helpers.periodic import minimum_interval
 from pretix.multidomain.urlreverse import eventreverse_absolute
@@ -458,14 +458,37 @@ def fail_installment_of_failed_payment(payment: OrderPayment, send_mail: bool = 
     return True
 
 
+def _revoke_token(plan: InstallmentPlan, token: dict) -> None:
+    """
+    Withdraw a stopped plan's saved payment method at the provider.
+
+    Revoking is a network call, so it happens once the plan is already stopped in the
+    database and outside that transaction, and a failure to revoke only gets logged. The
+    token is handed back to the in-memory plan for the provider to read and taken off
+    again afterwards: the database has it cleared either way, so nothing can be charged
+    against it whether the provider hears about it or not.
+    """
+    if not token:
+        return
+    provider = plan.order.event.get_payment_providers().get(plan.payment_provider)
+    if not provider:
+        return
+    plan.payment_token = token
+    try:
+        provider.revoke_payment_token(plan)
+    except Exception:
+        logger.warning("Failed to revoke payment token for plan %s", plan.pk)
+    finally:
+        plan.payment_token = {}
+
+
 def _stop_plan_that_never_started(plan: InstallmentPlan) -> None:
     """
     Stop a plan whose first payment failed, leaving its order an ordinary unpaid one.
 
-    The token, if the first payment left one, is revoked and cleared: nothing will be
-    charged against it, and a new plan for the order gets a token of its own. Revoking is
-    a network call, so it happens after the plan is stopped, and a failure to revoke only
-    gets logged.
+    Installment 1 keeps its ``failed`` state: that failure is the whole story of this plan,
+    and the order page and the control panel read it. Only the installments that were never
+    attempted are cancelled.
     """
     with transaction.atomic():
         token = plan.payment_token
@@ -476,16 +499,52 @@ def _stop_plan_that_never_started(plan: InstallmentPlan) -> None:
             state__in=(ScheduledInstallment.STATE_PENDING, ScheduledInstallment.STATE_PROCESSING),
         ).update(state=ScheduledInstallment.STATE_CANCELLED)
 
-    if token:
-        provider = plan.order.event.get_payment_providers().get(plan.payment_provider)
-        if provider:
-            plan.payment_token = token
-            try:
-                provider.revoke_payment_token(plan)
-            except Exception:
-                logger.warning("Failed to revoke payment token for plan %s", plan.pk)
-            finally:
-                plan.payment_token = {}
+    _revoke_token(plan, token)
+
+
+def complete_plan_for_settled_order(plan: InstallmentPlan) -> None:
+    """
+    Stop collecting a plan whose order has been paid off some other way.
+
+    An installment payment settles its own installment through
+    :py:meth:`OrderPayment.confirm`, which advances the plan and completes it with the
+    last one. A payment that belongs to no installment settles nothing there: a bank
+    transfer the importer matched, a payment an organizer marked as received, a gift card
+    covering the rest. The order is paid, and the plan stayed active -- so the processor
+    went on charging the customer's saved card month after month, for an order that owed
+    nothing. ``due_installments_queryset`` cannot refuse a paid order on its own: the last
+    installment of an ordinary plan is what pays the order in the first place.
+
+    So a plan whose order is settled completes -- it has collected everything it ever
+    will -- and its token is revoked. ``installments_paid`` is left at what was really
+    collected, which may be fewer than ``total_installments``, because that is what
+    happened. Nothing is refunded: the money the plan did collect is part of what paid the
+    order.
+
+    Called from the ``order_paid`` receiver, which runs inside the transaction that marks
+    the order paid, so the provider is called back on commit rather than inline: a
+    round-trip here would hold that transaction -- and the order row -- open for its
+    duration, and a rollback must not revoke a token the plan still needs.
+    """
+    with transaction.atomic():
+        token = plan.payment_token
+        plan.status = InstallmentPlan.STATUS_COMPLETED
+        plan.payment_token = {}
+        plan.grace_period_end = None
+        plan.grace_warning_sent = False
+        plan.save(update_fields=['status', 'payment_token', 'grace_period_end', 'grace_warning_sent'])
+        plan.installments.filter(
+            state__in=(
+                ScheduledInstallment.STATE_PENDING,
+                ScheduledInstallment.STATE_PROCESSING,
+                ScheduledInstallment.STATE_FAILED,
+            ),
+        ).update(state=ScheduledInstallment.STATE_CANCELLED)
+        plan.order.log_action(
+            'pretix.event.order.installment_plan.completed',
+            data={'installment_plan_id': plan.pk, 'installments_paid': plan.installments_paid},
+        )
+        transaction.on_commit(lambda: _revoke_token(plan, token))
 
 
 def claim_installment(installment: ScheduledInstallment) -> bool:
@@ -938,6 +997,31 @@ def handle_order_cancellation(sender, **kwargs):
         return
 
     cancel_installment_plan(plan, cancel_order=False, user=None, log=False)
+
+
+@receiver(signal=order_paid)
+def handle_order_paid(sender, **kwargs):
+    """
+    An order that has become paid has nothing left for its plan to collect.
+
+    Hooked on the signal rather than on the payment, because an order is marked paid from
+    several places -- a confirmed payment, an organizer marking one as received, a free
+    order -- and only one of them goes through the installment path at all. See
+    :py:func:`complete_plan_for_settled_order`.
+
+    Read fresh: the plan the order carries may be a stale copy of the row
+    :py:meth:`InstallmentPlan.record_successful_payment` has just completed, and a plan
+    that completed by collecting its last installment is no business of ours.
+    """
+    order = kwargs.get('order')
+
+    with scopes_disabled():
+        plan = InstallmentPlan.objects.filter(
+            order=order, status=InstallmentPlan.STATUS_ACTIVE
+        ).select_related('order', 'order__event').first()
+        if plan is None:
+            return
+        complete_plan_for_settled_order(plan)
 
 
 @receiver(signal=periodic_task)

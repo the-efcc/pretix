@@ -973,6 +973,134 @@ class TestProcessExpiredPlans:
 
 
 @pytest.mark.django_db
+class TestOrderSettledOutsideThePlan:
+    """
+    An order can be paid off without the plan hearing about it: a bank transfer the
+    importer matches, a payment an organizer marks as received, a gift card covering the
+    rest. Only a payment that belongs to a scheduled installment advances the plan, so
+    without this the plan stayed active and went on charging the customer's saved card
+    month after month for an order that owed nothing.
+    """
+
+    def _remaining_installments(self, plan):
+        for num, due in ((2, now() - timedelta(days=1)), (3, now() + timedelta(days=30))):
+            ScheduledInstallment.objects.create(
+                plan=plan, installment_number=num, amount=Decimal('100.00'),
+                due_date=due, state=ScheduledInstallment.STATE_PENDING,
+            )
+
+    def _settle_from_outside(self, event, order, provider, on_commit):
+        """Pay the order off with a payment of its own, as the bank transfer importer and
+        an organizer's "mark as paid" both do. Revoking the token is deferred to commit,
+        which a test transaction never reaches on its own."""
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                payment = order.payments.create(
+                    provider='banktransfer', amount=Decimal('300.00'),
+                    state=OrderPayment.PAYMENT_STATE_CREATED,
+                )
+                with on_commit(execute=True):
+                    payment.confirm(send_mail=False)
+
+    def test_the_plan_stops_collecting(self, event, order, plan, django_capture_on_commit_callbacks):
+        self._remaining_installments(plan)
+        provider = _mock_provider()
+
+        self._settle_from_outside(event, order, provider, django_capture_on_commit_callbacks)
+
+        order.refresh_from_db()
+        plan.refresh_from_db()
+        assert order.status == Order.STATUS_PAID
+        assert plan.status == InstallmentPlan.STATUS_COMPLETED
+        # Left at what the plan really collected, not rounded up to the total: that is what
+        # happened, and the order page and the API both report it.
+        assert plan.installments_paid == 1
+        assert plan.payment_token == {}
+        with scope(organizer=event.organizer):
+            assert set(plan.installments.values_list('state', flat=True)) == {
+                ScheduledInstallment.STATE_CANCELLED
+            }
+        provider.revoke_payment_token.assert_called_once()
+
+    def test_the_saved_card_is_never_charged_again(self, event, order, plan,
+                                                   django_capture_on_commit_callbacks):
+        self._remaining_installments(plan)
+        provider = _mock_provider()
+
+        self._settle_from_outside(event, order, provider, django_capture_on_commit_callbacks)
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                process_due_installments()
+
+        provider.execute_installment.assert_not_called()
+
+    def test_a_grace_period_is_not_left_behind(self, event, order, plan,
+                                               django_capture_on_commit_callbacks):
+        # The customer had an installment fail, then paid the order off at the counter.
+        plan.grace_period_end = now() + timedelta(days=7)
+        plan.grace_warning_sent = True
+        plan.save(update_fields=['grace_period_end', 'grace_warning_sent'])
+        inst = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_FAILED,
+        )
+
+        self._settle_from_outside(event, order, _mock_provider(), django_capture_on_commit_callbacks)
+
+        plan.refresh_from_db()
+        inst.refresh_from_db()
+        assert plan.grace_period_end is None
+        assert not plan.grace_warning_sent
+        assert inst.state == ScheduledInstallment.STATE_CANCELLED
+
+    def test_the_plan_is_told_about_it_in_the_order_log(
+        self, event, order, plan, django_capture_on_commit_callbacks
+    ):
+        self._remaining_installments(plan)
+
+        self._settle_from_outside(event, order, _mock_provider(), django_capture_on_commit_callbacks)
+
+        with scope(organizer=event.organizer):
+            entry = order.all_logentries().get(
+                action_type='pretix.event.order.installment_plan.completed'
+            )
+        assert entry.parsed_data['installments_paid'] == 1
+
+    def test_the_last_installment_completes_the_plan_as_before(self, event, order, plan):
+        # The ordinary ending: the final installment is what pays the order, so the signal
+        # fires for a plan that record_successful_payment has already completed.
+        plan.total_installments = 2
+        plan.save(update_fields=['total_installments'])
+        order.total = Decimal('200.00')
+        order.save(update_fields=['total'])
+        p1 = order.payments.create(
+            state=OrderPayment.PAYMENT_STATE_CONFIRMED, provider='dummy',
+            amount=Decimal('100.00'), payment_date=now(),
+        )
+        ScheduledInstallment.objects.create(
+            plan=plan, installment_number=1, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=30), state=ScheduledInstallment.STATE_PAID, payment=p1,
+        )
+        last = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                process_due_installments()
+
+        order.refresh_from_db()
+        plan.refresh_from_db()
+        last.refresh_from_db()
+        assert order.status == Order.STATUS_PAID
+        assert plan.status == InstallmentPlan.STATUS_COMPLETED
+        assert plan.installments_paid == 2
+        # Paid, not swept up as cancelled by the signal.
+        assert last.state == ScheduledInstallment.STATE_PAID
+
+
+@pytest.mark.django_db
 class TestOrderCancellation:
 
     def test_cancels_plan_and_installments(self, event, order, plan):
@@ -1146,6 +1274,7 @@ class TestGracePeriodWarnings:
 @pytest.mark.django_db
 @pytest.mark.parametrize('action_type', [
     'pretix.event.order.installment_plan.canceled',
+    'pretix.event.order.installment_plan.completed',
     'pretix.event.order.installment.reminder',
     'pretix.event.order.installment.failed',
     'pretix.event.order.installment.grace_warning',

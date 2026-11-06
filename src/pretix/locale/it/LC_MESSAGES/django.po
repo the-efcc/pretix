@@ -40222,6 +40222,12 @@ msgstr "Questo piano rateale non può essere annullato."
 msgid "The installment plan and order have been canceled."
 msgstr "Il piano rateale e l’ordine sono stati annullati."
 
+#: pretix/control/logdisplay.py
+msgid ""
+"The installment plan has stopped collecting because the order has been paid in "
+"full."
+msgstr "Il piano rateale non effettua più addebiti, poiché l’ordine è stato pagato per intero."
+
 #: pretix/control/views/orders.py
 msgid "The installment plan has been canceled."
 msgstr "Il piano rateale è stato annullato."
