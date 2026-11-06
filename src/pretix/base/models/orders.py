@@ -2000,22 +2000,26 @@ class OrderPayment(models.Model):
 
         self.refresh_from_db()
 
-        # efcc: an installment payment settles the scheduled installment it belongs to.
+        # efcc: an installment payment settles the scheduled installments it belongs to.
+        # Usually one, but the recovery page collects every installment that has failed in
+        # a single payment, so there may be several. They are marked paid before the plan
+        # is advanced, because that is how it knows whether its grace period is over.
         from pretix.efcc.models import ScheduledInstallment
 
-        installment = ScheduledInstallment.objects.filter(
+        installments = list(ScheduledInstallment.objects.filter(
             payment=self,
             state__in=(
                 ScheduledInstallment.STATE_PENDING,
                 ScheduledInstallment.STATE_PROCESSING,
                 ScheduledInstallment.STATE_FAILED,
             ),
-        ).first()
-        if installment is not None:
-            installment.plan.record_successful_payment()
-            ScheduledInstallment.objects.filter(pk=installment.pk).update(
-                state=ScheduledInstallment.STATE_PAID, processed_at=now()
-            )
+        ).select_related('plan'))
+        if installments:
+            with transaction.atomic():
+                ScheduledInstallment.objects.filter(
+                    pk__in=[i.pk for i in installments]
+                ).update(state=ScheduledInstallment.STATE_PAID, processed_at=now())
+                installments[0].plan.record_successful_payment(count=len(installments))
 
         self.order.log_action('pretix.event.order.payment.confirmed', {
             'local_id': self.local_id,
@@ -2026,7 +2030,7 @@ class OrderPayment(models.Model):
         # order stays pending for the whole term. Its tickets become valid as soon as the first
         # installment is actually collected -- not when the order is placed, or an order whose
         # first charge never went through would be valid without a cent having been paid.
-        if installment is not None and Order.objects.filter(
+        if installments and Order.objects.filter(
             pk=self.order_id, status=Order.STATUS_PENDING, valid_if_pending=False,
         ).update(valid_if_pending=True):
             self.order.valid_if_pending = True
@@ -2355,17 +2359,18 @@ class OrderRefund(models.Model):
             self.payment.state = OrderPayment.PAYMENT_STATE_REFUNDED
             self.payment.save(update_fields=['state'])
 
-            # efcc: a fully refunded payment no longer settles the installment it paid for.
+            # efcc: a fully refunded payment no longer settles the installments it paid for
+            # -- every one of them, since a recovery payment can have settled several.
             from pretix.efcc.models import ScheduledInstallment
 
-            installment = ScheduledInstallment.objects.filter(
+            installments = list(ScheduledInstallment.objects.filter(
                 payment=self.payment, state=ScheduledInstallment.STATE_PAID,
-            ).first()
-            if installment is not None:
-                installment.plan.record_refunded_payment()
-                ScheduledInstallment.objects.filter(pk=installment.pk).update(
-                    state=ScheduledInstallment.STATE_REFUNDED
-                )
+            ).select_related('plan'))
+            if installments:
+                ScheduledInstallment.objects.filter(
+                    pk__in=[i.pk for i in installments]
+                ).update(state=ScheduledInstallment.STATE_REFUNDED)
+                installments[0].plan.record_refunded_payment(count=len(installments))
 
     @property
     def full_id(self):

@@ -33,6 +33,7 @@ from django_scopes import scope
 from pretix.base.models import (
     Event, Item, Order, OrderPayment, OrderPosition, Organizer,
 )
+from pretix.base.models.orders import OrderRefund
 from pretix.base.services.installments import (
     PROCESSING_LEASE, claim_installment, create_installment_plan,
     process_due_installments, process_expired_plans,
@@ -816,6 +817,72 @@ class TestAbandonedPlansWindDown:
 
         plan.refresh_from_db()
         assert plan.grace_period_end == first_end
+
+    def test_the_grace_period_survives_while_an_installment_is_still_failed(self, event, order, plan):
+        """
+        Settling one installment must not end the deadline the other one is waiting on.
+        A plan that leaves its grace period with an installment still failed is collected
+        by nothing -- the processor only charges pending ones -- and cancelled by nothing,
+        so its order would stay pending and hold its quota for good.
+        """
+        plan.grace_period_end = now() + timedelta(days=40)
+        plan.grace_warning_sent = True
+        plan.save(update_fields=['grace_period_end', 'grace_warning_sent'])
+        ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=40), state=ScheduledInstallment.STATE_FAILED,
+        )
+        third = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=3, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=10), state=ScheduledInstallment.STATE_FAILED,
+        )
+
+        with scope(organizer=event.organizer):
+            payment = order.payments.create(
+                provider='dummy', amount=Decimal('100.00'), state=OrderPayment.PAYMENT_STATE_CREATED,
+            )
+            third.payment = payment
+            third.save(update_fields=['payment'])
+            with _patch_providers(_mock_provider()):
+                payment.confirm(send_mail=False)
+
+        plan.refresh_from_db()
+        assert plan.installments_paid == 2
+        assert plan.grace_period_end is not None
+        assert plan.grace_warning_sent
+
+    def test_refunding_a_recovery_payment_gives_back_every_installment_it_settled(self, event, order, plan):
+        plan.installments_paid = 1
+        plan.save(update_fields=['installments_paid'])
+        installments = [
+            ScheduledInstallment.objects.create(
+                plan=plan, installment_number=number, amount=Decimal('100.00'),
+                due_date=now() - timedelta(days=30), state=ScheduledInstallment.STATE_FAILED,
+            )
+            for number in (2, 3)
+        ]
+
+        with scope(organizer=event.organizer):
+            payment = order.payments.create(
+                provider='dummy', amount=Decimal('200.00'), state=OrderPayment.PAYMENT_STATE_CREATED,
+            )
+            ScheduledInstallment.objects.filter(pk__in=[i.pk for i in installments]).update(payment=payment)
+            with _patch_providers(_mock_provider()):
+                payment.confirm(send_mail=False)
+            plan.refresh_from_db()
+            assert plan.installments_paid == 3
+
+            order.refunds.create(
+                payment=payment, provider='dummy', amount=Decimal('200.00'),
+                source=OrderRefund.REFUND_SOURCE_ADMIN, state=OrderRefund.REFUND_STATE_CREATED,
+            ).done()
+
+        plan.refresh_from_db()
+        assert plan.installments_paid == 1
+        with scope(organizer=event.organizer):
+            assert set(
+                plan.installments.filter(pk__in=[i.pk for i in installments]).values_list('state', flat=True)
+            ) == {ScheduledInstallment.STATE_REFUNDED}
 
 
 @pytest.mark.django_db

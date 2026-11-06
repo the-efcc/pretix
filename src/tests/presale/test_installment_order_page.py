@@ -19,6 +19,7 @@
 # You should have received a copy of the GNU Affero General Public License along with this program.  If not, see
 # <https://www.gnu.org/licenses/>.
 #
+from contextlib import ExitStack
 from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import PropertyMock, patch
@@ -250,6 +251,83 @@ class InstallmentOrderPageTest(TestCase):
         assert 'A payment of €100.00 is still pending for this order.' in content
         assert 'checkout-button-row' in content
         assert 'Your payment method will be saved and used for future installment payments.' in content
+
+    # -- Recovery collects every installment that has failed --
+
+    @scopes_disabled()
+    def _two_failed_installments(self):
+        """
+        A grace period longer than a month: installment 2 failed, then 3 came due and was
+        charged against the same dead payment method, and failed too.
+        """
+        self.plan.installments_paid = 1
+        self.plan.grace_period_end = now() + timedelta(days=40)
+        self.plan.grace_warning_sent = True
+        self.plan.save(update_fields=['installments_paid', 'grace_period_end', 'grace_warning_sent'])
+        self.payment.state = OrderPayment.PAYMENT_STATE_CONFIRMED
+        self.payment.payment_date = now()
+        self.payment.save(update_fields=['state', 'payment_date'])
+        self.first.state = ScheduledInstallment.STATE_PAID
+        self.first.save(update_fields=['state'])
+        return [
+            ScheduledInstallment.objects.create(
+                plan=self.plan, installment_number=number, amount=Decimal('100.00'),
+                due_date=now() - timedelta(days=days), state=ScheduledInstallment.STATE_FAILED,
+            )
+            for number, days in ((2, 40), (3, 10))
+        ]
+
+    def _post_recovery(self, **provider_attrs):
+        # The recovery page only serves a provider that does installments.
+        provider_attrs.setdefault('installments_supported', True)
+        with ExitStack() as stack:
+            for name, value in provider_attrs.items():
+                stack.enter_context(patch.object(
+                    DummyPaymentProvider, name, new_callable=PropertyMock, return_value=value,
+                ))
+            return self.client.post(self._url('installment-recovery/'), {'payment': 'testdummy'})
+
+    def test_recovery_asks_for_every_failed_installment(self):
+        self._two_failed_installments()
+        content = self.client.get(self._url('installment-recovery/')).content.decode()
+        assert 'A payment of €200.00 is still pending for this order.' in content
+
+    def test_recovery_settles_every_failed_installment(self):
+        second, third = self._two_failed_installments()
+
+        # execute_payment_needs_user=False so the provider settles the charge server-side
+        # and the view confirms it, rather than sending the customer to a confirm page.
+        r = self._post_recovery(execute_payment_needs_user=False)
+        self.assertRedirects(r, self._url(), fetch_redirect_response=False)
+
+        with scopes_disabled():
+            second.refresh_from_db()
+            third.refresh_from_db()
+            self.plan.refresh_from_db()
+            self.order.refresh_from_db()
+            payment = self.order.payments.order_by('pk').last()
+        assert payment.amount == Decimal('200.00')
+        assert payment.state == OrderPayment.PAYMENT_STATE_CONFIRMED
+        assert second.state == third.state == ScheduledInstallment.STATE_PAID
+        assert second.payment == third.payment == payment
+        assert self.plan.installments_paid == 3
+        assert self.plan.status == InstallmentPlan.STATUS_COMPLETED
+        # Nothing is left failed, so the deadline goes.
+        assert self.plan.grace_period_end is None
+        assert not self.plan.grace_warning_sent
+        assert self.order.status == Order.STATUS_PAID
+
+    def test_a_second_attempt_reuses_the_first_payment(self):
+        # Customers resubmit: they hit back, they double-click, the provider bounces them
+        # home. One open attempt, not an order littered with abandoned `created` rows.
+        self._two_failed_installments()
+        self._post_recovery(execute_payment_needs_user=True)
+        self._post_recovery(execute_payment_needs_user=True)
+
+        with scopes_disabled():
+            assert self.order.payments.filter(
+                state=OrderPayment.PAYMENT_STATE_CREATED, amount=Decimal('200.00')
+            ).count() == 1
 
     @scopes_disabled()
     def test_the_retry_links_work_on_an_event_of_its_own_domain(self):

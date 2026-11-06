@@ -1991,14 +1991,24 @@ class OrderInstallmentRecovery(EventViewMixin, OrderDetailMixin, TemplateView):
             # A plan that stopped is not recovered: its order is paid the ordinary way.
             raise Http404(_('This order does not have any failed installments requiring recovery.'))
 
-        self.failed_installment = self.installment_plan.installments.filter(
+        # Every installment that has failed, not just the first. A grace period longer than
+        # a month lets the next one come due and be charged against the same dead payment
+        # method, so a plan can hold more than one -- and settling them one at a time left
+        # the plan out of its grace period with an installment still failed, which nothing
+        # collects and nothing cancels.
+        self.failed_installments = list(self.installment_plan.installments.filter(
             state=ScheduledInstallment.STATE_FAILED
-        ).order_by('due_date').first()
+        ).order_by('due_date'))
 
-        if not self.failed_installment:
+        if not self.failed_installments:
             raise Http404(_('This order does not have any failed installments requiring recovery.'))
 
         return super().dispatch(request, *args, **kwargs)
+
+    @cached_property
+    def amount(self):
+        """What the order owes right now: every failed installment together."""
+        return sum(i.amount for i in self.failed_installments)
 
     @cached_property
     def provider(self):
@@ -2020,48 +2030,51 @@ class OrderInstallmentRecovery(EventViewMixin, OrderDetailMixin, TemplateView):
         a fresh OrderPayment per submission litters the order with abandoned `created` rows
         that the organizer then has to make sense of.
         """
-        existing = self.order.payments.filter(
+        payment = self.order.payments.filter(
             provider=self.installment_plan.payment_provider,
             state=OrderPayment.PAYMENT_STATE_CREATED,
-            amount=self.failed_installment.amount,
-            installment__pk=self.failed_installment.pk,
-        ).first()
-        if existing is not None:
-            return existing
-
-        payment = OrderPayment.objects.create(
-            order=self.order,
-            provider=self.installment_plan.payment_provider,
-            amount=self.failed_installment.amount,
-            state=OrderPayment.PAYMENT_STATE_CREATED,
-        )
-        self.failed_installment.payment = payment
-        self.failed_installment.save(update_fields=['payment'])
+            amount=self.amount,
+            installment__in=self.failed_installments,
+        ).distinct().first()
+        if payment is None:
+            payment = OrderPayment.objects.create(
+                order=self.order,
+                provider=self.installment_plan.payment_provider,
+                amount=self.amount,
+                state=OrderPayment.PAYMENT_STATE_CREATED,
+            )
+        # Also on a reused attempt: it is matched on being for some of these installments,
+        # and has to end up charging for all of them.
+        ScheduledInstallment.objects.filter(
+            pk__in=[i.pk for i in self.failed_installments]
+        ).update(payment=payment)
         return payment
 
-    def _cleanup_recovery_payment(self, payment, previous_payment_id):
+    def _cleanup_recovery_payment(self, payment, previous_payment_ids):
         """
         Undo a recovery attempt that never got as far as charging anything.
 
-        The installment goes back to pointing at the charge that actually failed, not to
+        Each installment goes back to pointing at the charge that actually failed, not to
         nothing: that payment is the record of why the customer is on this page, and it is
         what the control panel shows the organizer.
         """
-        self.failed_installment.payment_id = previous_payment_id
-        self.failed_installment.save(update_fields=['payment'])
+        for installment in self.failed_installments:
+            installment.payment_id = previous_payment_ids[installment.pk]
+            installment.save(update_fields=['payment'])
         payment.delete()
 
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['order'] = self.order
         ctx['installment_plan'] = self.installment_plan
-        ctx['failed_installment'] = self.failed_installment
+        ctx['failed_installments'] = self.failed_installments
+        ctx['amount'] = self.amount
 
         if self.provider and self.provider.installments_supported:
             try:
                 ctx['payment_form_html'] = self.provider.payment_form_render(
                     self.request,
-                    self.failed_installment.amount,
+                    self.amount,
                     order=self.order
                 )
             except Exception:
@@ -2081,13 +2094,13 @@ class OrderInstallmentRecovery(EventViewMixin, OrderDetailMixin, TemplateView):
             return redirect(self.get_order_url())
 
         payment = None
-        previous_payment_id = self.failed_installment.payment_id
+        previous_payment_ids = {i.pk: i.payment_id for i in self.failed_installments}
         try:
             payment = self._recovery_payment()
 
             resp = self.provider.payment_prepare(request, payment)
             if resp is False:
-                self._cleanup_recovery_payment(payment, previous_payment_id)
+                self._cleanup_recovery_payment(payment, previous_payment_ids)
                 messages.error(request, _('Please check your payment information and try again.'))
                 return self.get(request, *args, **kwargs)
 
@@ -2120,7 +2133,7 @@ class OrderInstallmentRecovery(EventViewMixin, OrderDetailMixin, TemplateView):
 
         except Exception:
             if payment and payment.state == OrderPayment.PAYMENT_STATE_CREATED:
-                self._cleanup_recovery_payment(payment, previous_payment_id)
+                self._cleanup_recovery_payment(payment, previous_payment_ids)
             logger.exception('Unexpected error in installment recovery')
             messages.error(request, _('There was an error processing your request. Please try again.'))
             return self.get(request, *args, **kwargs)

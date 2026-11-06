@@ -120,15 +120,30 @@ class InstallmentPlan(models.Model):
         ordering = ('-created_at',)
 
     @transaction.atomic
-    def record_successful_payment(self):
+    def record_successful_payment(self, count: int = 1):
+        """
+        Count installments this plan has now collected, and settle up if that was the last.
+
+        Call it *after* the installments themselves are marked paid: whether the grace
+        period is over is read from their states.
+
+        :param count: How many installments the payment settled. One recovery payment
+                      collects every installment that has failed, so it can be more than
+                      one.
+        """
         with scopes_disabled():
             plan = InstallmentPlan.objects.select_for_update().get(pk=self.pk)
-        plan.installments_paid += 1
-        plan.grace_period_end = None
-        plan.grace_warning_sent = False
-        if plan.installments_paid >= plan.total_installments:
-            plan.status = InstallmentPlan.STATUS_COMPLETED
-        plan.save(update_fields=['installments_paid', 'grace_period_end', 'grace_warning_sent', 'status'])
+            plan.installments_paid += count
+            if not plan.installments.filter(state=ScheduledInstallment.STATE_FAILED).exists():
+                # Out of the grace period only once nothing is left failed. A plan that
+                # loses its deadline while an installment is still failed is collected by
+                # nothing -- the processor only charges pending ones -- and cancelled by
+                # nothing, so its order would stay pending and hold its quota for good.
+                plan.grace_period_end = None
+                plan.grace_warning_sent = False
+            if plan.installments_paid >= plan.total_installments:
+                plan.status = InstallmentPlan.STATUS_COMPLETED
+            plan.save(update_fields=['installments_paid', 'grace_period_end', 'grace_warning_sent', 'status'])
         for field in self._meta.concrete_fields:
             if not field.is_relation:
                 setattr(self, field.attname, getattr(plan, field.attname))
@@ -147,19 +162,21 @@ class InstallmentPlan(models.Model):
         return first.payment if first else None
 
     @transaction.atomic
-    def record_refunded_payment(self):
+    def record_refunded_payment(self, count: int = 1):
         """
-        Undo the bookkeeping for one installment whose payment has been refunded.
+        Undo the bookkeeping for the installments whose payment has been refunded.
 
         The counter has to come back down or the plan claims money it no longer holds,
         and the control panel and API both report it. The plan's *status* is deliberately
         left alone: a completed plan really did complete, and reopening it would leave an
         active plan whose token has already been revoked -- which the processor would
         read as an uncollectable plan and wind the order down over.
+
+        :param count: How many installments the refunded payment had settled.
         """
         with scopes_disabled():
             plan = InstallmentPlan.objects.select_for_update().get(pk=self.pk)
-        plan.installments_paid = max(plan.installments_paid - 1, 0)
+        plan.installments_paid = max(plan.installments_paid - count, 0)
         plan.save(update_fields=['installments_paid'])
         for field in self._meta.concrete_fields:
             if not field.is_relation:
