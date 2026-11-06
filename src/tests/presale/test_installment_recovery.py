@@ -389,9 +389,10 @@ class TestInstallmentRecovery(TestCase):
         provider = self._mock_provider()
         provider.execute_payment.side_effect = PaymentException('Card declined')
         with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
-            response = self.client.post(self._url())
+            response = self.client.post(self._url(), follow=True)
 
-        assert response.status_code == 302
+        # The provider's reason, not a promise of an automatic retry that never comes.
+        assert [str(m) for m in response.context['messages']] == ['Card declined']
         payment = OrderPayment.objects.get(order=self.order)
         assert payment.state == OrderPayment.PAYMENT_STATE_FAILED
         self.installment.refresh_from_db()
