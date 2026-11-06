@@ -736,7 +736,11 @@ class TestAbandonedPlansWindDown:
         assert plan.status == InstallmentPlan.STATUS_ACTIVE
         assert plan.grace_period_end is not None
         assert len(mail.outbox) == 1
-        assert '/installment-recovery/' in mail.outbox[0].body
+        # The same email as for any failed payment, linking to the order page, which offers
+        # to retry it.
+        assert 'Payment failed for your order' in mail.outbox[0].subject
+        assert '/order/%s/%s/\n' % (order.code, order.secret) in mail.outbox[0].body
+        assert '/installment-recovery/' not in mail.outbox[0].body
 
     def test_a_failed_recovery_payment_gets_the_usual_email(self, event, order, plan):
         """
@@ -789,7 +793,11 @@ class TestAbandonedPlansWindDown:
 
         assert len(mail.outbox) == 1
         assert order.code in mail.outbox[0].subject
-        assert '/installment-recovery/' in mail.outbox[0].body
+        # The same email as for any failed payment, linking to the order page, which offers
+        # to retry it.
+        assert 'Payment failed for your order' in mail.outbox[0].subject
+        assert '/order/%s/%s/\n' % (order.code, order.secret) in mail.outbox[0].body
+        assert '/installment-recovery/' not in mail.outbox[0].body
 
     def test_the_grace_period_is_not_pushed_back_by_a_second_failure(self, event, order, plan):
         plan.payment_token = {}
