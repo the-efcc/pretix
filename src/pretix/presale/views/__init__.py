@@ -272,18 +272,17 @@ class CartMixin:
             itemvarsums[p.variation or p.item] += 1
 
         payment_requests = payments if payments is not None else self.cart_session.get('payments', [])
-
-        multi_use_total = Decimal('0.00')
-        for p in payment_requests:
-            if p.get('multi_use_supported') and p.get('max_value'):
-                multi_use_total += min(Decimal(p['max_value']), total - multi_use_total)
+        multi_use_payments = [
+            p for p in self.current_selected_payments(lcp, fees, self.invoice_address)
+            if p.get('multi_use_supported')
+        ]
 
         installments = None
         for p in payment_requests:
             if p.get('installments_count', 0) >= 2:
                 count = p['installments_count']
                 payment_fees = sum(f.value for f in fees if f.fee_type == OrderFee.FEE_TYPE_PAYMENT)
-                remaining = total - multi_use_total - payment_fees
+                remaining = total - sum(m['payment_amount'] for m in multi_use_payments) - payment_fees
                 amounts = calculate_installment_amounts(remaining, count)
                 installments = {
                     'count': count,
@@ -313,10 +312,7 @@ class CartMixin:
                 sum(c.price_includes_rounding_correction for c in positions) + sum(f.price_includes_rounding_correction for f in fees)
             ),
             'itemvarsums': itemvarsums,
-            'current_selected_payments': [
-                p for p in self.current_selected_payments(lcp, fees, self.invoice_address)
-                if p.get('multi_use_supported')
-            ],
+            'current_selected_payments': multi_use_payments,
             'installments': installments,
         }
 

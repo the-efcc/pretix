@@ -2000,6 +2000,60 @@ class CheckoutTestCase(BaseCheckoutTestCase, TimemachineTestMixin, TestCase):
             assert p2.amount == Decimal('3.00')
             assert p2.state == OrderPayment.PAYMENT_STATE_CREATED
 
+    def _giftcard_and_installments(self, min_value=None):
+        gc = self.orga.issued_gift_cards.create(currency="EUR")
+        gc.transactions.create(value=100, acceptor=self.orga)
+        self.event.settings.set('installments_enabled', True)
+        self.event.settings.set('installments_count', 3)
+        if min_value:
+            self.event.settings.set('installments_min_order_value', min_value)
+        supported = mock.patch('pretix.plugins.banktransfer.payment.BankTransfer.installments_supported',
+                               new_callable=mock.PropertyMock, return_value=True)
+        supported.start()
+        self.addCleanup(supported.stop)
+        with scopes_disabled():
+            self.ticket.default_price = 300
+            self.ticket.save()
+            CartPosition.objects.create(
+                event=self.event, cart_id=self.session_key, item=self.ticket,
+                price=300, expires=now() + timedelta(minutes=10)
+            )
+        response = self.client.post('/%s/%s/checkout/payment/' % (self.orga.slug, self.event.slug), {
+            'payment': 'giftcard',
+            'payment_giftcard-code': gc.secret
+        }, follow=True)
+        assert 'alert-success' in response.content.decode()
+        return response.content.decode()
+
+    def test_installments_split_what_the_giftcard_leaves(self):
+        """300 in the cart, 100 on a gift card: the plan splits 200, not 300."""
+        content = self._giftcard_and_installments()
+        assert 'name="pay_in_installments"' in content
+        assert '€66.66' in content
+
+        response = self.client.post('/%s/%s/checkout/payment/' % (self.orga.slug, self.event.slug), {
+            'payment': 'banktransfer',
+            'pay_in_installments': 'on',
+            'installments_count': '3',
+        }, follow=True)
+        self.assertRedirects(response, '/%s/%s/checkout/confirm/' % (self.orga.slug, self.event.slug),
+                             target_status_code=200)
+        response = self.client.post('/%s/%s/checkout/confirm/' % (self.orga.slug, self.event.slug), follow=True)
+        assert len(BeautifulSoup(response.content.decode(), "lxml").select(".thank-you")) == 1
+        with scopes_disabled():
+            plan = Order.objects.last().installment_plan
+            assert [i.amount for i in plan.installments.all()] == [
+                Decimal('66.66'), Decimal('66.66'), Decimal('66.68'),
+            ]
+
+    def test_installments_minimum_is_held_against_what_the_giftcard_leaves(self):
+        """
+        A 250 minimum on a 300 cart with 100 on a gift card: the plan would split 200, so
+        it is not offered -- rather than offered here and refused at the very last step.
+        """
+        content = self._giftcard_and_installments(min_value='250.00')
+        assert 'name="pay_in_installments"' not in content
+
     def test_giftcard_full_with_multiple(self):
         gc = self.orga.issued_gift_cards.create(currency="EUR")
         gc.transactions.create(value=20, acceptor=self.orga)
