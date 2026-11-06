@@ -40249,6 +40249,14 @@ msgid "Installment payment retried successfully."
 msgstr "Il nuovo tentativo di pagamento della rata è riuscito."
 
 #: pretix/control/views/orders.py
+msgid ""
+"The installment payment has been started and is waiting for confirmation "
+"from the payment provider."
+msgstr ""
+"Il pagamento della rata è stato avviato ed è in attesa della conferma del "
+"fornitore di pagamento."
+
+#: pretix/control/views/orders.py
 msgid "Installment payment retry failed."
 msgstr "Il nuovo tentativo di pagamento della rata non è riuscito."
 

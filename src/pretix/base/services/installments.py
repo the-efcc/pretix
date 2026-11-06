@@ -24,7 +24,7 @@ import json
 import logging
 from datetime import timedelta
 from decimal import ROUND_FLOOR, Decimal
-from typing import List
+from typing import List, Optional
 
 from dateutil.relativedelta import relativedelta
 from django.db import models, transaction
@@ -506,8 +506,7 @@ def complete_plan_for_settled_order(plan: InstallmentPlan) -> None:
     transfer the importer matched, a payment an organizer marked as received, a gift card
     covering the rest. The order is paid, and the plan stayed active -- so the processor
     went on charging the customer's saved card month after month, for an order that owed
-    nothing. ``due_installments_queryset`` cannot refuse a paid order on its own: the last
-    installment of an ordinary plan is what pays the order in the first place.
+    nothing.
 
     So a plan whose order is settled completes -- it has collected everything it ever
     will -- and its token is revoked. ``installments_paid`` is left at what was really
@@ -541,6 +540,21 @@ def complete_plan_for_settled_order(plan: InstallmentPlan) -> None:
         transaction.on_commit(lambda: _revoke_token(plan, token))
 
 
+def _no_live_payment():
+    """
+    Filter for installments whose own payment is not still in flight.
+
+    ``created`` and ``pending`` are live: the customer is paying it right now (the first
+    installment at checkout, a recovery payment), or the provider has yet to say how a charge
+    ended. Charging such an installment again would take the money twice. ``confirmed``
+    settles the installment through :py:meth:`OrderPayment.confirm`; the rest are dead ends.
+    """
+    return ~models.Exists(OrderPayment.objects.filter(
+        pk=models.OuterRef('payment_id'),
+        state__in=(OrderPayment.PAYMENT_STATE_CREATED, OrderPayment.PAYMENT_STATE_PENDING),
+    ))
+
+
 def claim_installment(installment: ScheduledInstallment) -> bool:
     """
     Take exclusive ownership of an installment before charging it.
@@ -557,6 +571,11 @@ def claim_installment(installment: ScheduledInstallment) -> bool:
     to a run that died, and can be claimed again -- otherwise a killed worker would strand
     it in a state no retry path can reach.
 
+    An installment whose own payment is still live is not claimed either: a retry from the
+    control panel must not charge the saved card while the customer is paying the same
+    installment on the recovery page. The check is a subquery, not a join, so the UPDATE
+    stays on this one row and the state check above still serializes the callers.
+
     :return: True if this caller now owns the installment
     """
     with scopes_disabled():
@@ -568,6 +587,7 @@ def claim_installment(installment: ScheduledInstallment) -> bool:
                 state=ScheduledInstallment.STATE_PROCESSING,
                 processed_at__lt=now() - PROCESSING_LEASE,
             ),
+            _no_live_payment(),
             pk=installment.pk,
         ).update(state=ScheduledInstallment.STATE_PROCESSING, processed_at=now())
 
@@ -577,7 +597,7 @@ def claim_installment(installment: ScheduledInstallment) -> bool:
     return True
 
 
-def process_single_installment(installment: ScheduledInstallment, send_mail: bool = False) -> bool:
+def process_single_installment(installment: ScheduledInstallment, send_mail: bool = False) -> Optional[bool]:
     """
     Processes a single installment payment.
 
@@ -602,7 +622,8 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
     :param send_mail: Whether to notify the customer — the failure notice on a
                       declined charge, the paid confirmation when the order is
                       settled (default False)
-    :return: True if the charge succeeded, False otherwise
+    :return: True if the charge succeeded, None if the provider has yet to say how it
+             ended, False otherwise
     """
     if not claim_installment(installment):
         logger.info(
@@ -669,6 +690,19 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
                 "Failed to execute installment %s for order %s",
                 installment.pk, order.code,
             )
+
+        if success is None:
+            # The provider has not heard how the charge ended. Calling that a decline would
+            # tell the customer to pay again while the first charge may still go through.
+            # The payment stays live instead, which keeps every caller off this installment,
+            # and settles it when the provider reports: confirm() pays it, fail() fails it.
+            # shortcut: a charge the provider never reports on stays pending for good; add a
+            # timeout if a provider is ever seen to do that.
+            payment.state = OrderPayment.PAYMENT_STATE_PENDING
+            payment.save(update_fields=['state', 'info'])
+            installment.state = ScheduledInstallment.STATE_PENDING
+            installment.save(update_fields=['state'])
+            return None
 
         if success:
             try:
@@ -744,14 +778,10 @@ def due_installments_queryset():
         # covers an order an organizer marked expired by hand -- without this, its
         # installments keep being charged month after month.
         plan__status=InstallmentPlan.STATUS_ACTIVE,
-        plan__order__status__in=(Order.STATUS_PENDING, Order.STATUS_PAID),
-    ).exclude(
-        payment__isnull=False,
-        payment__state__in=(
-            OrderPayment.PAYMENT_STATE_CREATED,
-            OrderPayment.PAYMENT_STATE_PENDING,
-        ),
-    )
+        # Not a paid one: an order change can settle an order without sending order_paid,
+        # and the plan would go on charging for money nobody owes.
+        plan__order__status=Order.STATUS_PENDING,
+    ).filter(_no_live_payment())
 
 
 def process_due_installments():

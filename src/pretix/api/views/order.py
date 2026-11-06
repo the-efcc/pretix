@@ -1150,6 +1150,11 @@ class EventOrderViewSet(OrderViewSetMixin, viewsets.ModelViewSet):
                 {'message': 'Installment payment retried successfully.'},
                 status=status.HTTP_200_OK
             )
+        elif success is None:
+            return Response(
+                {'message': 'Installment payment started, waiting for confirmation from the payment provider.'},
+                status=status.HTTP_202_ACCEPTED
+            )
         else:
             return Response(
                 {'error': 'Installment payment retry failed.'},
