@@ -184,6 +184,22 @@ class InstallmentOrderPageTest(TestCase):
         assert 'The installment plan has been canceled.' in content
         assert 'We are still waiting for your first installment payment' not in content
 
+    @scopes_disabled()
+    def test_a_completed_plan_is_not_called_cancelled(self):
+        # Every order that pays off its installments ends with a completed plan, and the
+        # panel used to tell all of them their plan had been canceled.
+        self.plan.status = InstallmentPlan.STATUS_COMPLETED
+        self.plan.installments_paid = 3
+        self.plan.save(update_fields=['status', 'installments_paid'])
+        self.first.state = ScheduledInstallment.STATE_PAID
+        self.first.save(update_fields=['state'])
+        self.order.status = Order.STATUS_PAID
+        self.order.save(update_fields=['status'])
+
+        content = self.client.get(self._url()).content.decode()
+        assert 'Installment plan' in content
+        assert 'The installment plan has been canceled.' not in content
+
     # -- A failed installment of a running plan is shown as a pending payment --
 
     @scopes_disabled()

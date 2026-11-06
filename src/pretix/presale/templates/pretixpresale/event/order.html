@@ -184,7 +184,7 @@
                 </h3>
             </div>
             <div class="panel-body">
-                {% if not installment_plan_active %}
+                {% if installment_plan_cancelled %}
                     <p class="text-muted">{% trans "The installment plan has been canceled." %}</p>
                 {% endif %}
                 <dl class="dl-horizontal">

@@ -37989,6 +37989,12 @@ msgstr "Dieser Ratenzahlungsplan kann nicht abgebrochen werden."
 msgid "The installment plan and order have been canceled."
 msgstr "Der Ratenzahlungsplan und die Bestellung wurden storniert."
 
+#: pretix/control/logdisplay.py
+msgid ""
+"The installment plan has stopped collecting because the order has been paid in "
+"full."
+msgstr "Der Ratenzahlungsplan zieht nichts mehr ein, da die Bestellung vollständig bezahlt ist."
+
 #: pretix/control/views/orders.py
 msgid "The installment plan has been canceled."
 msgstr "Der Ratenzahlungsplan wurde abgebrochen."
