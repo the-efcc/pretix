@@ -103,7 +103,7 @@
             </div>
             <div class="panel-body">
                 <p>
-                <strong>{% blocktrans trimmed with total=failed_installment.amount|money:request.event.currency %}
+                <strong>{% blocktrans trimmed with total=failed_installment_sum|money:request.event.currency %}
                     A payment of {{ total }} is still pending for this order.
                 {% endblocktrans %}</strong>
                 {% if installment_plan.grace_period_end %}
@@ -118,7 +118,7 @@
                 {% if installment_recovery_direct %}
                     {# Nothing to fill in for this provider: go straight to it. #}
                     <form method="post" style="margin-bottom: 10px;"
-                          action="{% url "presale:event.order.installment.recovery" event.organizer.slug event.slug order.code order.secret %}">
+                          action="{% eventurl request.event "presale:event.order.installment.recovery" order=order.code secret=order.secret %}">
                         {% csrf_token %}
                         <input type="hidden" name="payment" value="{{ installment_recovery_provider }}">
                         <button type="submit" class="btn btn-primary">
@@ -127,7 +127,7 @@
                     </form>
                 {% else %}
                     <p>
-                        <a href="{% url "presale:event.order.installment.recovery" event.organizer.slug event.slug order.code order.secret %}"
+                        <a href="{% eventurl request.event "presale:event.order.installment.recovery" order=order.code secret=order.secret %}"
                            class="btn btn-primary">
                             {% trans "Re-try payment" %}
                         </a>

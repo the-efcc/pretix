@@ -34,6 +34,7 @@ from pretix.base.models import (
 )
 from pretix.base.models.orders import OrderPayment
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
+from pretix.multidomain.models import KnownDomain
 
 
 class InstallmentOrderPageTest(TestCase):
@@ -210,6 +211,22 @@ class InstallmentOrderPageTest(TestCase):
         assert 'alert-danger' not in content
         assert 'panel-danger' not in content
 
+    @scopes_disabled()
+    def test_the_pending_amount_counts_every_failed_installment(self):
+        # A grace period longer than a month lets the next installment come due and fail
+        # too, against the same dead token. The page says what the order owes, not what
+        # the first of them was for.
+        self._running_plan_with_a_failed_installment()
+        self.plan.grace_period_end = now() + timedelta(days=40)
+        self.plan.save(update_fields=['grace_period_end'])
+        ScheduledInstallment.objects.create(
+            plan=self.plan, installment_number=3, amount=Decimal('100.00'),
+            due_date=now(), state=ScheduledInstallment.STATE_FAILED,
+        )
+
+        content = self.client.get(self._url()).content.decode()
+        assert 'A payment of €200.00 is still pending for this order.' in content
+
     def test_the_recovery_page_is_laid_out_like_the_payment_page(self):
         self._running_plan_with_a_failed_installment()
         content = self.client.get(self._url('installment-recovery/')).content.decode()
@@ -217,6 +234,27 @@ class InstallmentOrderPageTest(TestCase):
         assert 'A payment of €100.00 is still pending for this order.' in content
         assert 'checkout-button-row' in content
         assert 'Your payment method will be saved and used for future installment payments.' in content
+
+    @scopes_disabled()
+    def test_the_retry_links_work_on_an_event_of_its_own_domain(self):
+        # Under an event's own domain the presale URLs carry no organizer or event slug,
+        # so a link built with {% url %} and those slugs raises NoReverseMatch -- a 500 on
+        # the one page the customer needs in order to pay.
+        KnownDomain.objects.create(domainname='tickets.example.org', organizer=self.orga,
+                                   event=self.event, mode=KnownDomain.MODE_EVENT_DOMAIN)
+        self._running_plan_with_a_failed_installment()
+
+        # On its own domain an event's links are absolute, as the rest of the page's are.
+        base = 'http://tickets.example.org/order/%s/%s/' % (self.order.code, self.order.secret)
+        r = self.client.get('/order/%s/%s/' % (self.order.code, self.order.secret),
+                            HTTP_HOST='tickets.example.org')
+        assert r.status_code == 200
+        assert base + 'installment-recovery/' in r.content.decode()
+
+        r = self.client.get('/order/%s/%s/installment-recovery/' % (self.order.code, self.order.secret),
+                            HTTP_HOST='tickets.example.org')
+        assert r.status_code == 200
+        assert 'href="%s"' % base in r.content.decode()
 
     def test_thank_you_does_not_claim_an_uncollected_first_installment(self):
         content = self.client.get(self._url() + '?thanks=1').content.decode()

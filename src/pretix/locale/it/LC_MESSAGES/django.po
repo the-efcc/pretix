@@ -40341,11 +40341,11 @@ msgstr "Elaborato il"
 msgid "Reminder sent"
 msgstr "Promemoria inviato"
 
-#: pretix/presale/checkoutflow.py
+#: pretix/presale/views/installments.py
 msgid "Please select a payment method that supports installments."
 msgstr "Seleziona un metodo di pagamento che supporti il pagamento a rate."
 
-#: pretix/presale/checkoutflow.py
+#: pretix/presale/views/installments.py
 msgid "Please select a valid installment plan."
 msgstr "Seleziona un piano rateale valido."
 

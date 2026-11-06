@@ -285,7 +285,12 @@ def set_up_installment_plan(order: Order, provider_name: str, installments_count
     """
     event = order.event
     provider = event.get_payment_providers().get(provider_name)
-    if not provider or not installments_available_for_order(order, provider, payment.amount):
+    # The fee comes out first: ``installments_min_order_value`` is a floor on what is being
+    # paid in installments, and the fee is charged once, up front, not split. Checkout
+    # measures the same figure, so both pages offer installments on the same orders.
+    fee_value = payment.fee.value if payment.fee is not None else Decimal('0.00')
+    base_total = payment.amount - fee_value
+    if not provider or not installments_available_for_order(order, provider, base_total):
         raise ValueError(f"Installments are not available for order {order.code} with '{provider_name}'.")
 
     max_allowed = get_max_installments_for_event(event)
@@ -295,8 +300,7 @@ def set_up_installment_plan(order: Order, provider_name: str, installments_count
             f"based on the event date."
         )
 
-    fee_value = payment.fee.value if payment.fee is not None else Decimal('0.00')
-    amounts = calculate_installment_amounts(payment.amount - fee_value, installments_count)
+    amounts = calculate_installment_amounts(base_total, installments_count)
 
     try:
         plan = InstallmentPlan.objects.select_for_update().get(order=order)
@@ -884,8 +888,11 @@ def cancel_installment_plan(plan: InstallmentPlan, cancel_order: bool = False, u
         order = plan.order
         event = order.event
 
+        # No token, nothing to revoke -- and with the provider left alone this is database
+        # work only, so a plan that never got one can be cancelled inside a caller's
+        # transaction.
         provider = event.get_payment_providers().get(plan.payment_provider)
-        if provider:
+        if provider and plan.payment_token:
             try:
                 provider.revoke_payment_token(plan)
             except Exception:

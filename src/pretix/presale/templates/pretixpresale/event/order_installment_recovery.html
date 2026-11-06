@@ -2,6 +2,7 @@
 {% load i18n %}
 {% load money %}
 {% load html_time %}
+{% load eventurl %}
 {% block title %}{% trans "Pay order" %}{% endblock %}
 {% block content %}
     {# Laid out like order_pay.html: a failed installment is retried as any other payment is. #}
@@ -49,7 +50,7 @@
         <div class="row checkout-button-row">
             <div class="col-md-4">
                 <a class="btn btn-block btn-default btn-lg"
-                   href="{% url "presale:event.order" event.organizer.slug event.slug order.code order.secret %}">
+                   href="{% eventurl request.event "presale:event.order" order=order.code secret=order.secret %}">
                     {% trans "Cancel" %}
                 </a>
             </div>

@@ -71,10 +71,7 @@ from pretix.base.services.cart import (
     set_cart_addons,
 )
 from pretix.base.services.cross_selling import CrossSellingService
-from pretix.base.services.installments import (
-    calculate_installment_amounts, get_max_installments_for_event,
-    installments_available_for_event,
-)
+from pretix.base.services.installments import installments_available_for_event
 from pretix.base.services.memberships import validate_memberships_in_order
 from pretix.base.services.orders import perform_order
 from pretix.base.services.payment import compute_payment_deadline
@@ -107,6 +104,7 @@ from pretix.presale.views.cart import (
     _items_from_post_data, cart_session, create_empty_cart_id,
     get_or_create_cart_id,
 )
+from pretix.presale.views.installments import InstallmentChoiceMixin
 from pretix.presale.views.questions import CartQuestionsViewMixin
 
 
@@ -1305,7 +1303,7 @@ class QuestionsStep(CartQuestionsViewMixin, CartMixin, TemplateFlowStep):
         caches['default'].set(key + ':valid', True, timeout=12 * 3600)  # but recalculate after 12 hours
 
 
-class PaymentStep(CartMixin, TemplateFlowStep):
+class PaymentStep(InstallmentChoiceMixin, CartMixin, TemplateFlowStep):
     priority = 200
     identifier = "payment"
     template_name = "pretixpresale/event/checkout_payment.html"
@@ -1354,53 +1352,16 @@ class PaymentStep(CartMixin, TemplateFlowStep):
             providers.append(provider_dict)
         return providers
 
-    @cached_property
-    def installment_providers(self):
-        return [p for p in self.provider_forms if p['installments_available']]
+    @property
+    def installment_base_amount(self):
+        # The cart total already excludes the payment fee, which is added per provider.
+        return self._total_order_value
 
-    @cached_property
-    def installment_options(self):
-        if not self.installment_providers:
-            return []
-
-        max_installments = get_max_installments_for_event(self.request.event)
-        if max_installments < 2:
-            return []
-
-        options = []
-        for count in range(2, max_installments + 1):
-            amounts = calculate_installment_amounts(self._total_order_value, count)
-            options.append({
-                'count': count,
-                'amount': amounts[0],
-            })
-        return options
-
-    @cached_property
-    def selected_installments_count(self):
-        if self.request.method == 'POST' and self.request.POST.get('pay_in_installments'):
-            try:
-                count = int(self.request.POST.get('installments_count', '0'))
-            except (ValueError, TypeError):
-                count = 0
-            if count >= 2:
-                return count
-
+    def installment_previous_choice(self):
         for payment in self.cart_session.get('payments', []):
             if payment.get('pay_in_installments') and payment.get('installments_count', 0) >= 2:
-                return payment.get('installments_count', 0)
-
+                return payment['installments_count']
         return 0
-
-    @cached_property
-    def pay_in_installments_selected(self):
-        if self.request.method == 'POST':
-            return self.request.POST.get('pay_in_installments') == 'on'
-
-        return any(
-            payment.get('pay_in_installments') and payment.get('installments_count', 0) >= 2
-            for payment in self.cart_session.get('payments', [])
-        )
 
     @cached_property
     def single_use_payment(self):
@@ -1428,7 +1389,6 @@ class PaymentStep(CartMixin, TemplateFlowStep):
     def post(self, request):
         self.request = request
         self.request.pci_dss_payment_page = True
-        pay_in_installments = request.POST.get('pay_in_installments') == 'on'
 
         if "postpone" in request.POST and self._allow_postpone:
             self.cart_session['payments_postpone'] = True
@@ -1447,20 +1407,10 @@ class PaymentStep(CartMixin, TemplateFlowStep):
                     simulated_payments = self.cart_session.get('payments', {})
                     simulated_payments = [p for p in simulated_payments if p.get('multi_use_supported')]
 
-                    installments_count = 0
-                    if pay_in_installments:
-                        if not p['installments_available']:
-                            messages.error(self.request, _('Please select a payment method that supports installments.'))
-                            return self.render()
-
-                        try:
-                            installments_count = int(request.POST.get('installments_count', '0'))
-                        except (ValueError, TypeError):
-                            installments_count = 0
-
-                        if installments_count < 2 or installments_count > get_max_installments_for_event(self.request.event):
-                            messages.error(self.request, _('Please select a valid installment plan.'))
-                            return self.render()
+                    installments_count, installment_error = self.installments_count_from_post(p)
+                    if installment_error:
+                        messages.error(self.request, installment_error)
+                        return self.render()
 
                     simulated_payments.append({
                         'provider': pprov.identifier,
@@ -1540,10 +1490,7 @@ class PaymentStep(CartMixin, TemplateFlowStep):
         ctx['remaining'] = self._total_order_value - sum(p['payment_amount'] for p in ctx['current_payments']) + sum(p['fee'] for p in ctx['current_payments'])
         ctx['providers'] = self.provider_forms
         ctx['show_fees'] = any(p['fee'] for p in self.provider_forms)
-        ctx['installments_available'] = bool(self.installment_options)
-        ctx['pay_in_installments'] = ctx['installments_available'] and self.pay_in_installments_selected
-        ctx['installment_options'] = self.installment_options
-        ctx['selected_installments_count'] = self.selected_installments_count
+        ctx.update(self.installment_context())
 
         if 'payment' in self.request.POST:
             ctx['selected'] = self.request.POST['payment']
