@@ -1024,6 +1024,9 @@ class OrderInstallmentRetry(OrderView):
         else:
             if success:
                 messages.success(self.request, _('Installment payment retried successfully.'))
+            elif success is None:
+                messages.info(self.request, _('The installment payment has been started and is waiting for '
+                                              'confirmation from the payment provider.'))
             else:
                 messages.error(self.request, _('Installment payment retry failed.'))
 

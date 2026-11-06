@@ -149,6 +149,17 @@ class TestInstallmentPlanAPI:
         resp = token_client.post(_url(orga, event, order, 'retry/'))
         assert resp.status_code == 200
 
+    def test_retry_installment_left_pending_by_the_provider(self, token_client, env, mocker):
+        orga, event, order, plan = env
+        with scope(organizer=orga):
+            installment = plan.installments.first()
+            installment.state = ScheduledInstallment.STATE_FAILED
+            installment.save()
+
+        mocker.patch('pretix.api.views.order.process_single_installment', return_value=None)
+        resp = token_client.post(_url(orga, event, order, 'retry/'))
+        assert resp.status_code == 202
+
     def test_retry_installment_no_failed(self, token_client, env):
         orga, event, order, plan = env
         resp = token_client.post(_url(orga, event, order, 'retry/'))

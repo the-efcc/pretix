@@ -37982,6 +37982,14 @@ msgid "Installment payment retried successfully."
 msgstr "El reintento del pago de la cuota se ha realizado correctamente."
 
 #: pretix/control/views/orders.py
+msgid ""
+"The installment payment has been started and is waiting for confirmation "
+"from the payment provider."
+msgstr ""
+"El pago de la cuota se ha iniciado y está a la espera de la confirmación del"
+" proveedor de pago."
+
+#: pretix/control/views/orders.py
 msgid "Installment payment retry failed."
 msgstr "El reintento del pago de la cuota ha fallado."
 

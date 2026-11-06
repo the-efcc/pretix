@@ -1173,7 +1173,7 @@ class BasePaymentProvider:
         return False
 
     def execute_installment(self, plan: 'InstallmentPlan', installment: 'ScheduledInstallment',
-                            payment: OrderPayment) -> bool:
+                            payment: OrderPayment) -> Union[bool, None]:
         """
         Execute a scheduled installment payment using the stored payment token.
 
@@ -1198,7 +1198,11 @@ class BasePaymentProvider:
         :param plan: The InstallmentPlan containing payment token and configuration
         :param installment: The ScheduledInstallment to process
         :param payment: The OrderPayment to record this charge against
-        :return: True if the payment succeeded, False if it failed
+        Return ``None`` when the provider has not yet said how the charge ended. pretix
+        then leaves ``payment`` in state ``pending`` and charges the installment no further;
+        confirm or fail ``payment`` once you hear back, as for any pending payment.
+
+        :return: True if the payment succeeded, False if it failed, None if it is pending
         :raises NotImplementedError: If the provider does not support installments
         """
         raise NotImplementedError(
