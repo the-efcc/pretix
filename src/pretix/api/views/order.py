@@ -1145,7 +1145,7 @@ class EventOrderViewSet(OrderViewSetMixin, viewsets.ModelViewSet):
     def installment_plan_retry(self, request, **kwargs):
         """
         Manually trigger a retry for failed installments.
-        Returns 400 if no failed installment exists.
+        Returns 400 if the plan is not active or no failed installment exists.
         """
         order = self.get_object()
 
@@ -1153,6 +1153,16 @@ class EventOrderViewSet(OrderViewSetMixin, viewsets.ModelViewSet):
             plan = order.installment_plan
         except InstallmentPlan.DoesNotExist:
             raise NotFound('This order does not have an installment plan.')
+
+        # Only an active plan is collected. A plan that stopped -- its first payment failed,
+        # or it was cancelled -- leaves its order to be paid the ordinary way, and charging
+        # against it here would only re-fail its installments and stamp a grace period on a
+        # plan nothing reads any more.
+        if plan.status != InstallmentPlan.STATUS_ACTIVE:
+            return Response(
+                {'error': 'This installment plan is not active.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         failed_installment = plan.installments.filter(
             state=ScheduledInstallment.STATE_FAILED

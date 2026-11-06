@@ -154,6 +154,28 @@ class TestInstallmentPlanAPI:
         resp = token_client.post(_url(orga, event, order, 'retry/'))
         assert resp.status_code == 400
 
+    def test_retry_installment_needs_an_active_plan(self, token_client, env, mocker):
+        """
+        A plan that stopped leaves its order to be paid the ordinary way. Charging against
+        it here would only re-fail its installments and stamp a grace period on a plan
+        nothing reads any more.
+        """
+        orga, event, order, plan = env
+        with scope(organizer=orga):
+            installment = plan.installments.first()
+            installment.state = ScheduledInstallment.STATE_FAILED
+            installment.save()
+            plan.status = InstallmentPlan.STATUS_FAILED
+            plan.save(update_fields=['status'])
+
+        charge = mocker.patch('pretix.api.views.order.process_single_installment', return_value=True)
+        resp = token_client.post(_url(orga, event, order, 'retry/'))
+        assert resp.status_code == 400
+        charge.assert_not_called()
+        with scope(organizer=orga):
+            plan.refresh_from_db()
+        assert plan.grace_period_end is None
+
     def test_cancel_plan(self, token_client, env):
         orga, event, order, plan = env
         resp = token_client.delete(_url(orga, event, order))

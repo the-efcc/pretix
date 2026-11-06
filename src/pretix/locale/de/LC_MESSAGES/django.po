@@ -38108,11 +38108,11 @@ msgstr "Verarbeitet am"
 msgid "Reminder sent"
 msgstr "Erinnerung gesendet"
 
-#: pretix/presale/checkoutflow.py
+#: pretix/presale/views/installments.py
 msgid "Please select a payment method that supports installments."
 msgstr "Bitte wählen Sie eine Zahlungsmethode, die Ratenzahlung unterstützt."
 
-#: pretix/presale/checkoutflow.py
+#: pretix/presale/views/installments.py
 msgid "Please select a valid installment plan."
 msgstr "Bitte wählen Sie einen gültigen Ratenzahlungsplan."
 

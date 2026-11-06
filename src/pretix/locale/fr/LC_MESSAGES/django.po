@@ -38446,13 +38446,13 @@ msgstr "Traité le"
 msgid "Reminder sent"
 msgstr "Rappel envoyé"
 
-#: pretix/presale/checkoutflow.py
+#: pretix/presale/views/installments.py
 msgid "Please select a payment method that supports installments."
 msgstr ""
 "Veuillez sélectionner un mode de paiement prenant en charge le paiement en "
 "plusieurs fois."
 
-#: pretix/presale/checkoutflow.py
+#: pretix/presale/views/installments.py
 msgid "Please select a valid installment plan."
 msgstr "Veuillez sélectionner un échéancier de paiement valide."
 

@@ -75,8 +75,7 @@ from pretix.base.models.orders import (
 from pretix.base.models.tax import TaxedPrice
 from pretix.base.payment import PaymentException
 from pretix.base.services.installments import (
-    calculate_installment_amounts, cancel_installment_plan,
-    get_max_installments_for_event, installments_available_for_order,
+    cancel_installment_plan, installments_available_for_order,
     plan_not_started, set_up_installment_plan,
 )
 from pretix.base.services.invoices import (
@@ -106,6 +105,7 @@ from pretix.presale.signals import question_form_fields_overrides
 from pretix.presale.views import (
     CartMixin, EventViewMixin, iframe_entry_view_wrapper,
 )
+from pretix.presale.views.installments import InstallmentChoiceMixin
 from pretix.presale.views.robots import NoSearchIndexViewMixin
 
 logger = logging.getLogger(__name__)
@@ -406,6 +406,12 @@ class OrderDetails(EventViewMixin, OrderDetailMixin, CartMixin, TicketPageMixin,
                 state=ScheduledInstallment.STATE_FAILED
             ).order_by('due_date').first()
             if ctx['failed_installment']:
+                # What the order owes right now, not what the first failed installment was
+                # for: a long grace period lets a later installment come due and fail too,
+                # and the page says how much is pending for the order.
+                ctx['failed_installment_sum'] = installment_plan.installments.filter(
+                    state=ScheduledInstallment.STATE_FAILED
+                ).aggregate(s=Sum('amount'))['s'] or Decimal('0.00')
                 provider = self.request.event.get_payment_providers().get(installment_plan.payment_provider)
                 ctx['installment_recovery_direct'] = (
                     provider is not None and not installment_recovery_needs_input(provider)
@@ -650,7 +656,7 @@ class OrderPaymentComplete(EventViewMixin, OrderDetailMixin, View):
 
 
 @method_decorator(xframe_options_exempt, 'dispatch')
-class OrderPayChangeMethod(EventViewMixin, OrderDetailMixin, TemplateView):
+class OrderPayChangeMethod(InstallmentChoiceMixin, EventViewMixin, OrderDetailMixin, TemplateView):
     template_name = 'pretixpresale/event/order_pay_change.html'
 
     def dispatch(self, request, *args, **kwargs):
@@ -797,19 +803,12 @@ class OrderPayChangeMethod(EventViewMixin, OrderDetailMixin, TemplateView):
     # failed gets the same choice back: one who paid at once can switch to installments, one
     # whose first installment failed can pay at once instead or pick another plan.
 
-    @cached_property
-    def _balance_without_fee(self):
+    @property
+    def installment_base_amount(self):
         return self.order.pending_sum - (sum(f.value for f in self.open_fees) or Decimal('0.00'))
 
-    @cached_property
-    def installment_options(self):
-        if not any(p['installments_available'] for p in self.provider_forms):
-            return []
-        max_installments = get_max_installments_for_event(self.request.event)
-        return [
-            {'count': count, 'amount': calculate_installment_amounts(self._balance_without_fee, count)[0]}
-            for count in range(2, max_installments + 1)
-        ]
+    def installment_previous_choice(self):
+        return self.stopped_plan.total_installments if self.stopped_plan else 0
 
     @cached_property
     def stopped_plan(self):
@@ -820,46 +819,14 @@ class OrderPayChangeMethod(EventViewMixin, OrderDetailMixin, TemplateView):
             return None
         return plan if plan.status == InstallmentPlan.STATUS_FAILED else None
 
-    @cached_property
-    def pay_in_installments_selected(self):
-        if self.request.method == 'POST':
-            return self.request.POST.get('pay_in_installments') == 'on'
-        return self.stopped_plan is not None
-
-    @cached_property
-    def selected_installments_count(self):
-        counts = [o['count'] for o in self.installment_options]
-        if not counts:
-            return 0
-        if self.request.method == 'POST':
-            try:
-                count = int(self.request.POST.get('installments_count', '0'))
-            except (ValueError, TypeError):
-                count = 0
-            if count in counts:
-                return count
-        if self.stopped_plan is not None:
-            # As many as before, or as many as are still possible now the event is closer.
-            return min(max(self.stopped_plan.total_installments, counts[0]), counts[-1])
-        return counts[0]
-
     def post(self, request, *args, **kwargs):
         self.request = request
-        pay_in_installments = bool(self.installment_options) and self.pay_in_installments_selected
         for p in self.provider_forms:
             if p['provider'].identifier == request.POST.get('payment', ''):
-                installments_count = 0
-                if pay_in_installments:
-                    if not p['installments_available']:
-                        messages.error(self.request, _('Please select a payment method that supports installments.'))
-                        return self.get(request, *args, **kwargs)
-                    try:
-                        installments_count = int(request.POST.get('installments_count', '0'))
-                    except (ValueError, TypeError):
-                        installments_count = 0
-                    if installments_count not in [o['count'] for o in self.installment_options]:
-                        messages.error(self.request, _('Please select a valid installment plan.'))
-                        return self.get(request, *args, **kwargs)
+                installments_count, installment_error = self.installments_count_from_post(p)
+                if installment_error:
+                    messages.error(self.request, installment_error)
+                    return self.get(request, *args, **kwargs)
 
                 request.session['payment'] = p['provider'].identifier
                 request.session['payment_change_{}'.format(self.order.pk)] = '1'
@@ -874,16 +841,23 @@ class OrderPayChangeMethod(EventViewMixin, OrderDetailMixin, TemplateView):
                             set_up_installment_plan(
                                 self.order, p['provider'].identifier, installments_count, newpayment
                             )
+                        elif self.stopped_plan is not None:
+                            # Paying at once after all: the plan that never started is done
+                            # with. It has no token left to revoke -- it was cleared when the
+                            # plan stopped -- so this is database work only, and belongs in
+                            # the same transaction as the payment change.
+                            cancel_installment_plan(self.stopped_plan, cancel_order=False)
                 except ValueError:
+                    if not installments_count:
+                        # Not ours to explain: set_up_installment_plan is the only thing here
+                        # that reports an unavailable plan as a ValueError.
+                        raise
                     # Installments stopped being available between showing the page and now;
                     # the payment change is rolled back with it.
                     logger.warning('Could not set up installments for order %s', self.order.code, exc_info=True)
                     self.order.refresh_from_db()
                     messages.error(self.request, _('Please select a valid installment plan.'))
                     return self.get(request, *args, **kwargs)
-                if not installments_count and self.stopped_plan is not None:
-                    # Paying at once after all: the plan that never started is done with.
-                    cancel_installment_plan(self.stopped_plan, cancel_order=False)
 
                 if new_invoice_created:
                     messages.success(self.request, _('An invoice has been generated.'))
@@ -903,10 +877,7 @@ class OrderPayChangeMethod(EventViewMixin, OrderDetailMixin, TemplateView):
         ctx['order'] = self.order
         ctx['providers'] = self.provider_forms
         ctx['show_fees'] = any(p['fee_diff'] for p in self.provider_forms)
-        ctx['installments_available'] = bool(self.installment_options)
-        ctx['pay_in_installments'] = ctx['installments_available'] and self.pay_in_installments_selected
-        ctx['installment_options'] = self.installment_options
-        ctx['selected_installments_count'] = self.selected_installments_count
+        ctx.update(self.installment_context())
         if len(self.provider_forms) == 1:
             ctx['selected'] = self.provider_forms[0]['provider'].identifier
         elif "payment" in self.request.POST:

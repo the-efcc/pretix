@@ -200,6 +200,38 @@ class InstallmentRetryPageTest(TestCase):
             assert not InstallmentPlan.objects.filter(order=self.order).exists()
             assert not self.order.payments.exists()
 
+    def test_a_plan_that_cannot_be_set_up_rolls_the_payment_change_back(self):
+        """
+        The event can move too close for the chosen number of installments between the page
+        loading and the submit. Everything the payment change did goes back with the plan:
+        the order's total, its payment fee, its payment and its invoice.
+        """
+        with scopes_disabled():
+            self.event.settings.set('payment_testdummy__fee_abs', '5.00')
+            self.event.settings.set('invoice_generate', 'True')
+
+        with patch('pretix.presale.views.order.set_up_installment_plan',
+                   side_effect=ValueError('no longer available')):
+            r = self._choose(installments=2)
+
+        assert r.status_code == 200
+        assert 'Please select a valid installment plan.' in r.content.decode()
+        with scopes_disabled():
+            self.order.refresh_from_db()
+            assert self.order.total == Decimal('300.00')
+            assert not self.order.fees.exists()
+            assert not self.order.payments.exists()
+            assert not self.order.invoices.exists()
+            assert not InstallmentPlan.objects.filter(order=self.order).exists()
+
+    def test_a_failure_that_is_not_about_installments_is_not_swallowed(self):
+        # The handler used to report any ValueError from the payment change as a bad
+        # installment plan, on a page that need not even offer installments.
+        with patch('pretix.presale.views.order.change_payment_provider',
+                   side_effect=ValueError('something else entirely')):
+            with self.assertRaises(ValueError):
+                self._choose()
+
     def test_the_checkout_choice_is_the_same_markup(self):
         # Both pages render the shared fragment, which installments.js relies on.
         content = self.client.get(self._url('pay/change')).content.decode()
