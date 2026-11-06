@@ -111,7 +111,7 @@ from pretix.base.signals import (
 )
 from pretix.base.timemachine import time_machine_now, time_machine_now_assigned
 from pretix.celery_app import app
-from pretix.efcc.models import InstallmentPlan
+from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 from pretix.helpers import OF_SELF
 from pretix.helpers.models import modelcopy
 from pretix.helpers.periodic import minimum_interval
@@ -1503,6 +1503,13 @@ def _perform_order(event: Event, payment_requests: List[dict], position_ids: Lis
     }
 
 
+def _collecting_plans():
+    return InstallmentPlan.objects.filter(
+        order_id=OuterRef('pk'), status=InstallmentPlan.STATUS_ACTIVE,
+        installments__state=ScheduledInstallment.STATE_PAID,
+    )
+
+
 @receiver(signal=periodic_task)
 @scopes_disabled()
 def expire_orders(sender, **kwargs):
@@ -1519,10 +1526,10 @@ def expire_orders(sender, **kwargs):
             OrderFee.objects.filter(order_id=OuterRef('pk'), fee_type=OrderFee.FEE_TYPE_CANCELLATION)
         )
     ).exclude(
-        # Don't expire orders with active installment plans - remaining payments are scheduled
-        Exists(
-            InstallmentPlan.objects.filter(order_id=OuterRef('pk'), status=InstallmentPlan.STATUS_ACTIVE)
-        )
+        # Don't expire orders whose installment plan is collecting: its remaining payments are
+        # scheduled, and its grace period ends it if they fail. A plan that has collected
+        # nothing -- the customer left checkout -- is no reason to hold the tickets.
+        Exists(_collecting_plans())
     ).prefetch_related('event').order_by('event_id')
     for o in qs:
         if o.event_id != event_id:
@@ -1545,10 +1552,8 @@ def send_expiry_warnings(sender, **kwargs):
             expires__gte=today, expiry_reminder_sent=False, status=Order.STATUS_PENDING,
             datetime__lte=now() - timedelta(hours=2), require_approval=False
     ).exclude(
-        # Don't send expiry warnings for orders with active installment plans
-        Exists(
-            InstallmentPlan.objects.filter(order_id=OuterRef('pk'), status=InstallmentPlan.STATUS_ACTIVE)
-        )
+        # Nor warn them about an expiry that will not come.
+        Exists(_collecting_plans())
     ).only('pk', 'event_id', 'expires').order_by('event_id'):
 
         lp = o.payments.last()
