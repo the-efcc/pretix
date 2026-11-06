@@ -38322,13 +38322,6 @@ msgstr ""
 "Bei der Verarbeitung Ihrer Anfrage ist ein Fehler aufgetreten. Bitte "
 "versuchen Sie es erneut."
 
-#: pretix/presale/views/order.py
-msgid ""
-"Your payment method was updated, but the payment could not be processed "
-"immediately. We will retry automatically."
-msgstr ""
-"Ihre Zahlungsmethode wurde aktualisiert, die Zahlung konnte jedoch nicht "
-"sofort verarbeitet werden. Wir versuchen es automatisch erneut."
 #~ msgid "SSO provider:"
 #~ msgstr "SSO-Provider:"
 

@@ -2114,11 +2114,7 @@ class OrderInstallmentRecovery(EventViewMixin, OrderDetailMixin, TemplateView):
                 result = self.provider.execute_payment(request, payment)
             except PaymentException as e:
                 logger.warning('Payment execution failed during recovery: %s', str(e))
-                messages.warning(
-                    request,
-                    _('Your payment method was updated, but the payment could not be processed immediately. '
-                      'We will retry automatically.')
-                )
+                messages.error(request, str(e))
                 payment.state = OrderPayment.PAYMENT_STATE_FAILED
                 payment.save(update_fields=['state'])
                 return redirect(self.get_order_url())

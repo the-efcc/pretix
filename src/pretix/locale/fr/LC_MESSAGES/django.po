@@ -38663,13 +38663,6 @@ msgstr ""
 "Une erreur s’est produite lors du traitement de votre demande. Veuillez "
 "réessayer."
 
-#: pretix/presale/views/order.py
-msgid ""
-"Your payment method was updated, but the payment could not be processed "
-"immediately. We will retry automatically."
-msgstr ""
-"Votre mode de paiement a été mis à jour, mais le paiement n’a pas pu être "
-"traité immédiatement. Nous réessaierons automatiquement."
 #~ msgid "SSO provider:"
 #~ msgstr "Fournisseur SSO :"
 
