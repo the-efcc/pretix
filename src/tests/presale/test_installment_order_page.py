@@ -258,6 +258,39 @@ class InstallmentOrderPageTest(TestCase):
         self.order.refresh_from_db()
         assert self.order.expires == later
 
+    # -- A failed installment of a running plan is shown as a pending payment --
+
+    @scopes_disabled()
+    def _running_plan_with_a_failed_installment(self):
+        self.plan.installments_paid = 1
+        self.plan.grace_period_end = now() + timedelta(days=7)
+        self.plan.save(update_fields=['installments_paid', 'grace_period_end'])
+        self.first.state = ScheduledInstallment.STATE_PAID
+        self.first.save(update_fields=['state'])
+        return ScheduledInstallment.objects.create(
+            plan=self.plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_FAILED,
+        )
+
+    def test_a_failed_installment_is_a_pending_payment_like_any_other(self):
+        self._running_plan_with_a_failed_installment()
+        content = self.client.get(self._url()).content.decode()
+        assert 'A payment of €100.00 is still pending for this order.' in content
+        assert 'Please complete your payment before' in content
+        assert 'Re-try payment' in content
+        # The plan itself is only information now: no alert of its own.
+        assert 'alert-danger' not in content
+        assert 'panel-danger' not in content
+
+    def test_the_recovery_page_is_laid_out_like_the_payment_page(self):
+        self._running_plan_with_a_failed_installment()
+        content = self.client.get(self._url('installment-recovery/')).content.decode()
+        assert 'Pay order: ABCDE' in content
+        assert 'A payment of €100.00 is still pending for this order.' in content
+        assert 'checkout-button-row' in content
+        assert 'Your payment method will be saved and used for future installment payments.' in content
+        assert 'href="%s"' % self._url('installment-recovery/pay-in-full/') in content
+
     def test_thank_you_does_not_claim_an_uncollected_first_installment(self):
         content = self.client.get(self._url() + '?thanks=1').content.decode()
         assert 'We are still waiting for your first installment payment to be confirmed.' in content

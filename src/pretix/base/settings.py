@@ -2714,13 +2714,13 @@ Your {event} team"""))  # noqa: W291
         'type': LazyI18nString,
         'default': LazyI18nString.from_gettext(gettext_noop("""Hello,
 
-unfortunately, your recent installment payment for {event} failed.
-Please update your payment method or retry the payment by {expire_date}
-to avoid cancellation of your order.
+your installment payment for your order for {event} has failed.
 
 Reason: {failure_reason}
 
-You can update your payment method at:
+Your order is still valid and you can try to pay again. Please complete your payment before {expire_date}, or your order will be canceled.
+
+You can retry the payment and view the status of your order at
 {url}
 
 Best regards,  
@@ -2728,7 +2728,7 @@ Your {event} team"""))  # noqa: W291
     },
     'mail_subject_installment_failed': {
         'type': LazyI18nString,
-        'default': LazyI18nString.from_gettext(gettext_noop("Payment failed: {code}")),
+        'default': LazyI18nString.from_gettext(gettext_noop("Payment failed for your order: {code}")),
     },
     'mail_text_installment_reminder': {
         'type': LazyI18nString,

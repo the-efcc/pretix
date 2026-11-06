@@ -1,57 +1,35 @@
 {% extends "pretixpresale/event/base.html" %}
 {% load i18n %}
 {% load money %}
-{% block title %}{% trans "Update payment method" %}{% endblock %}
+{% load html_time %}
+{% block title %}{% trans "Pay order" %}{% endblock %}
 {% block content %}
+    {# Laid out like order_pay.html: a failed installment is retried as any other payment is. #}
     <h2>
         {% blocktrans trimmed with code=order.code %}
-            Update payment method: {{ code }}
+            Pay order: {{ code }}
         {% endblocktrans %}
     </h2>
 
-    <div class="alert alert-warning">
-        <strong>{% trans "Payment required" %}</strong>
+    <p>
+        <strong>{% blocktrans trimmed with total=failed_installment.amount|money:event.currency %}
+            A payment of {{ total }} is still pending for this order.
+        {% endblocktrans %}</strong>
+        {% if installment_plan.grace_period_end %}
+            <strong>
+            {% html_time installment_plan.grace_period_end "format_expires" as date %}
+                {% blocktrans trimmed with date=date %}
+                    Please complete your payment before {{ date }}
+                {% endblocktrans %}
+            </strong>
+        {% endif %}
+    </p>
+    <p>
         {% blocktrans trimmed %}
-            Your recent installment payment has failed. Please update your payment method to avoid cancellation of your order.
+            Please provide your updated payment information below. Your payment method will be saved
+            and used for future installment payments.
         {% endblocktrans %}
-    </div>
-
-    <div class="panel panel-default">
-        <div class="panel-heading">
-            <h3 class="panel-title">{% trans "Failed installment details" %}</h3>
-        </div>
-        <div class="panel-body">
-            <dl class="dl-horizontal">
-                <dt>{% trans "Installment number" %}</dt>
-                <dd>{{ failed_installment.installment_number }} {% trans "of" %} {{ installment_plan.total_installments }}</dd>
-
-                <dt>{% trans "Amount due" %}</dt>
-                <dd>{{ failed_installment.amount|money:event.currency }}</dd>
-
-                <dt>{% trans "Original due date" %}</dt>
-                <dd>{{ failed_installment.due_date|date:"SHORT_DATE_FORMAT" }}</dd>
-
-                {% if installment_plan.grace_period_end %}
-                <dt>{% trans "Grace period ends" %}</dt>
-                <dd>
-                    <strong class="text-danger">
-                        {{ installment_plan.grace_period_end|date:"SHORT_DATETIME_FORMAT" }}
-                    </strong>
-                </dd>
-                {% endif %}
-            </dl>
-
-            {% if installment_plan.grace_period_end %}
-            <p class="text-danger">
-                <strong>
-                    {% blocktrans trimmed with date=installment_plan.grace_period_end|date:"SHORT_DATE_FORMAT" %}
-                        If payment is not received by {{ date }}, your order will be canceled.
-                    {% endblocktrans %}
-                </strong>
-            </p>
-            {% endif %}
-        </div>
-    </div>
+    </p>
 
     <form method="post" class="form-horizontal"
           data-total="{{ failed_installment.amount|money_numberfield:event.currency }}">
@@ -59,43 +37,30 @@
         {# Providers only bind their payment form to a POST that names them, and their #}
         {# frontend JS (Stripe, PayPal) only loads inside .payment-redo-form. #}
         <input type="hidden" name="payment" value="{{ installment_plan.payment_provider }}">
-        <div class="panel panel-primary">
-            <div class="panel-heading">
-                <h3 class="panel-title">{% trans "Update payment method" %}</h3>
+        {% if payment_form_error %}
+            <div class="alert alert-danger">
+                {{ payment_form_error }}
             </div>
-            <div class="panel-body">
-                <p>
-                    {% blocktrans trimmed %}
-                        Please provide your updated payment information below. Your payment method will be saved
-                        and used for future installment payments.
-                    {% endblocktrans %}
-                </p>
-
-                {% if payment_form_error %}
-                    <div class="alert alert-danger">
-                        <strong>{% trans "Error" %}</strong>
-                        {{ payment_form_error }}
-                    </div>
-                {% elif payment_form_html %}
-                    <div class="form-horizontal payment-redo-form">
-                        {{ payment_form_html|safe }}
-                    </div>
-                {% else %}
-                    <div class="alert alert-warning">
-                        {% trans "Payment form could not be loaded. Please contact support." %}
-                    </div>
-                {% endif %}
+        {% else %}
+            <div class="form-horizontal payment-redo-form">
+                {{ payment_form_html|safe }}
             </div>
-            <div class="panel-footer text-right">
-                <a href="{% url "presale:event.order" event.organizer.slug event.slug order.code order.secret %}"
-                   class="btn btn-default">
+        {% endif %}
+        <div class="row checkout-button-row">
+            <div class="col-md-4">
+                <a class="btn btn-block btn-default btn-lg"
+                   href="{% url "presale:event.order" event.organizer.slug event.slug order.code order.secret %}">
                     {% trans "Cancel" %}
                 </a>
-                <button type="submit" class="btn btn-primary">
-                    <i class="fa fa-check"></i>
-                    {% trans "Update payment method" %}
-                </button>
             </div>
+            <div class="col-md-4 col-md-offset-4">
+                {% if not payment_form_error %}
+                    <button class="btn btn-block btn-primary btn-lg" type="submit">
+                        {% trans "Continue" %}
+                    </button>
+                {% endif %}
+            </div>
+            <div class="clearfix"></div>
         </div>
     </form>
 
@@ -104,22 +69,4 @@
             {% trans "Pay the full amount instead" %}
         </a>
     </p>
-
-    <div class="panel panel-info">
-        <div class="panel-heading">
-            <h3 class="panel-title">{% trans "Installment plan overview" %}</h3>
-        </div>
-        <div class="panel-body">
-            <dl class="dl-horizontal">
-                <dt>{% trans "Total installments" %}</dt>
-                <dd>{{ installment_plan.total_installments }}</dd>
-
-                <dt>{% trans "Installments paid" %}</dt>
-                <dd>{{ installment_plan.installments_paid }}</dd>
-
-                <dt>{% trans "Amount due now" %}</dt>
-                <dd>{{ failed_installment.amount|money:event.currency }}</dd>
-            </dl>
-        </div>
-    </div>
 {% endblock %}

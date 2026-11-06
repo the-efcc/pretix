@@ -44,11 +44,11 @@
                         <strong>
                             {% trans "Please note that we still await approval by the event organizer before you can pay and complete this order." %}
                         </strong>
-                    {% elif installment_plan_active and installment_plan.installments_paid %}
+                    {% elif installment_plan_active and installment_plan.installments_paid and not failed_installment %}
                         <strong>
                             {% trans "Your first installment has been received. The remaining installments will be charged automatically according to schedule." %}
                         </strong>
-                    {% elif installment_plan_active %}
+                    {% elif installment_plan_active and not failed_installment %}
                         <strong>
                             {% trans "Your installment plan has been set up. We are still waiting for your first installment payment to be confirmed." %}
                         </strong>
@@ -93,7 +93,54 @@
         <dt class="sr-only">Status</dt>
         <dd class="text-muted">{% include "pretixpresale/event/fragment_order_status.html" with order=order event=request.event %}</dd>
     </dl>
-    {% if order.status == "n" and not order.require_approval and not installment_plan_active %}
+    {% if order.status == "n" and not order.require_approval and installment_plan_active and failed_installment %}
+        {# efcc: a failed installment is a payment still pending, shown as any other one is. #}
+        <div class="panel panel-primary">
+            <div class="panel-heading">
+                <h3 class="panel-title">
+                    {% trans "Payment" %}
+                </h3>
+            </div>
+            <div class="panel-body">
+                <p>
+                <strong>{% blocktrans trimmed with total=failed_installment.amount|money:request.event.currency %}
+                    A payment of {{ total }} is still pending for this order.
+                {% endblocktrans %}</strong>
+                {% if installment_plan.grace_period_end %}
+                <strong>
+                {% html_time installment_plan.grace_period_end "format_expires" as date %}
+                    {% blocktrans trimmed with date=date %}
+                        Please complete your payment before {{ date }}
+                    {% endblocktrans %}
+                </strong>
+                {% endif %}
+                </p>
+                {% if installment_recovery_direct %}
+                    {# Nothing to fill in for this provider: go straight to it. #}
+                    <form method="post" style="margin-bottom: 10px;"
+                          action="{% url "presale:event.order.installment.recovery" event.organizer.slug event.slug order.code order.secret %}">
+                        {% csrf_token %}
+                        <input type="hidden" name="payment" value="{{ installment_recovery_provider }}">
+                        <button type="submit" class="btn btn-primary">
+                            {% trans "Re-try payment" %}
+                        </button>
+                    </form>
+                {% else %}
+                    <p>
+                        <a href="{% url "presale:event.order.installment.recovery" event.organizer.slug event.slug order.code order.secret %}"
+                           class="btn btn-primary">
+                            {% trans "Re-try payment" %}
+                        </a>
+                    </p>
+                {% endif %}
+                <p>
+                    <a href="{% url "presale:event.order.installment.pay_in_full" event.organizer.slug event.slug order.code order.secret %}">
+                        {% trans "Pay the full amount instead" %}
+                    </a>
+                </p>
+            </div>
+        </div>
+    {% elif order.status == "n" and not order.require_approval and not installment_plan_active %}
         <div class="panel panel-primary">
             <div class="panel-heading">
                 <h3 class="panel-title">
@@ -135,7 +182,7 @@
     {% endif %}
 
     {% if installment_plan %}
-        <div class="panel {% if failed_installment %}panel-danger{% else %}panel-info{% endif %}">
+        <div class="panel panel-info">
             <div class="panel-heading">
                 <h3 class="panel-title">
                     {% trans "Installment plan" %}
@@ -160,43 +207,6 @@
                         </dd>
                     {% endif %}
                 </dl>
-
-                {% if failed_installment %}
-                    <div class="alert alert-danger">
-                        <p>
-                            <strong>{% trans "Payment failed" %}</strong>
-                            {% blocktrans trimmed with amount=failed_installment.amount|money:event.currency date=installment_plan.grace_period_end|date:"SHORT_DATE_FORMAT" %}
-                                Your installment payment of {{ amount }} has failed.
-                                Please update your payment method by {{ date }} to avoid cancellation of your order.
-                            {% endblocktrans %}
-                        </p>
-                        {% if installment_recovery_direct %}
-                            {# Nothing to fill in for this provider: go straight to it. #}
-                            <form method="post" class="text-right" style="margin-top: 15px; margin-bottom: 0;"
-                                  action="{% url "presale:event.order.installment.recovery" event.organizer.slug event.slug order.code order.secret %}">
-                                {% csrf_token %}
-                                <input type="hidden" name="payment" value="{{ installment_recovery_provider }}">
-                                <button type="submit" class="btn btn-danger">
-                                    <i class="fa fa-credit-card"></i>
-                                    {% trans "Update payment method" %}
-                                </button>
-                            </form>
-                        {% else %}
-                            <p class="text-right" style="margin-top: 15px; margin-bottom: 0;">
-                                <a href="{% url "presale:event.order.installment.recovery" event.organizer.slug event.slug order.code order.secret %}"
-                                   class="btn btn-danger">
-                                    <i class="fa fa-credit-card"></i>
-                                    {% trans "Update payment method" %}
-                                </a>
-                            </p>
-                        {% endif %}
-                        <p class="text-right" style="margin-top: 10px; margin-bottom: 0;">
-                            <a href="{% url "presale:event.order.installment.pay_in_full" event.organizer.slug event.slug order.code order.secret %}">
-                                {% trans "Pay the full amount instead" %}
-                            </a>
-                        </p>
-                    </div>
-                {% endif %}
 
                 {% if installment_history %}
                     <h4>{% trans "Payment history" %}</h4>

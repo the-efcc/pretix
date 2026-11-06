@@ -367,8 +367,10 @@ def send_installment_failed_mail(installment: ScheduledInstallment, plan: Instal
         context.update({
             'failure_reason': installment.failure_reason or '',
             'expire_date': LazyExpiresDate(plan.grace_period_end.astimezone(event.timezone)),
+            # The order page, as in pretix's own "payment failed" email: it shows the payment
+            # still pending, with the button to retry it.
             'url': eventreverse_absolute(
-                event, 'presale:event.order.installment.recovery',
+                event, 'presale:event.order',
                 kwargs={'order': order.code, 'secret': order.secret}
             ),
         })
