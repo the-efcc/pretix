@@ -37999,6 +37999,12 @@ msgstr "Der Ratenzahlungsplan zieht nichts mehr ein, da die Bestellung vollstän
 msgid "The installment plan has been canceled."
 msgstr "Der Ratenzahlungsplan wurde abgebrochen."
 
+#: pretix/control/logdisplay.py
+msgid ""
+"The remaining installments have been adjusted to the changed order total."
+msgstr ""
+"Die verbleibenden Raten wurden an den geänderten Bestellbetrag angepasst."
+
 #: pretix/control/views/orders.py
 msgid "This installment plan is not active."
 msgstr "Dieser Ratenzahlungsplan ist nicht aktiv."
