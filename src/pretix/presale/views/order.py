@@ -1999,65 +1999,6 @@ def installment_recovery_needs_input(provider) -> bool:
 
 
 @method_decorator(xframe_options_exempt, 'dispatch')
-class OrderInstallmentPayInFull(EventViewMixin, OrderDetailMixin, TemplateView):
-    """
-    Let a customer whose installment failed pay the rest of their order at once instead.
-
-    Confirming cancels the installment plan and sends them to the ordinary payment page,
-    which takes the open balance once no active plan stands in its way. Only offered while
-    an installment has failed: that is when the customer has to act anyway, and the
-    recovery page is where they are.
-    """
-    template_name = 'pretixpresale/event/order_installment_pay_in_full.html'
-
-    def dispatch(self, request, *args, **kwargs):
-        self.request = request
-
-        resp = self.verify_order_access()
-        if resp:
-            return resp
-
-        try:
-            self.installment_plan = self.order.installment_plan
-        except InstallmentPlan.DoesNotExist:
-            raise Http404(_('This order does not have an installment plan.'))
-
-        if (self.installment_plan.status != InstallmentPlan.STATUS_ACTIVE
-                or not self.installment_plan.installments.filter(
-                    state=ScheduledInstallment.STATE_FAILED).exists()):
-            raise Http404(_('This order does not have any failed installments requiring recovery.'))
-
-        return super().dispatch(request, *args, **kwargs)
-
-    def get_context_data(self, **kwargs):
-        ctx = super().get_context_data(**kwargs)
-        ctx['order'] = self.order
-        ctx['installment_plan'] = self.installment_plan
-        ctx['amount'] = self.order.pending_sum
-        return ctx
-
-    def post(self, request, *args, **kwargs):
-        plan = self.installment_plan
-        # The grace period is the deadline the customer was given for this payment. Once the
-        # plan is gone the order's own expiry applies again, and it may be long past: keep
-        # the order open at least as long as the plan would have.
-        deadline = plan.grace_period_end
-        cancel_installment_plan(plan, cancel_order=False, log=False)
-        self.order.log_action(
-            'pretix.event.order.installment_plan.canceled',
-            data={'installment_plan_id': plan.pk, 'by_customer': True},
-        )
-        if deadline and (not self.order.expires or self.order.expires < deadline):
-            self.order.expires = deadline
-            self.order.save(update_fields=['expires'])
-
-        return redirect(eventreverse(self.request.event, 'presale:event.order.pay.change', kwargs={
-            'order': self.order.code,
-            'secret': self.order.secret,
-        }))
-
-
-@method_decorator(xframe_options_exempt, 'dispatch')
 class OrderInstallmentRecovery(EventViewMixin, OrderDetailMixin, TemplateView):
     template_name = 'pretixpresale/event/order_installment_recovery.html'
 

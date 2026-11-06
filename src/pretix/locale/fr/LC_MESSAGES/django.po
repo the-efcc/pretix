@@ -38550,19 +38550,8 @@ msgstr ""
 "votre commande."
 
 #: pretix/presale/templates/pretixpresale/event/order.html
-#: pretix/presale/templates/pretixpresale/event/order_installment_pay_in_full.html
-#: pretix/presale/templates/pretixpresale/event/order_installment_recovery.html
-msgid "Pay the full amount instead"
-msgstr "Payer plutôt le montant total"
-
-#: pretix/presale/templates/pretixpresale/event/order.html
 msgid "Re-try payment"
 msgstr "Réessayer le paiement"
-
-#: pretix/presale/templates/pretixpresale/event/order_installment_pay_in_full.html
-#, python-format
-msgid "Instead of paying in installments, you can pay the remaining %(amount)s at once. Your installment plan will then be canceled, and you can choose how to pay on the next page."
-msgstr "Au lieu de payer en plusieurs fois, vous pouvez régler en une seule fois le montant restant de %(amount)s. Votre échéancier de paiement sera alors annulé, et vous pourrez choisir votre mode de paiement à la page suivante."
 
 #: pretix/presale/templates/pretixpresale/event/order_cancel.html
 #, python-format

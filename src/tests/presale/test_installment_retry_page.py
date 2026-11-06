@@ -122,7 +122,6 @@ class InstallmentRetryPageTest(TestCase):
         # It is paid the ordinary way now, not through the installment recovery page.
         self._failed_first_installment()
         assert self.client.get(self._url('installment-recovery/')).status_code == 404
-        assert self.client.get(self._url('installment-recovery/pay-in-full/')).status_code == 404
 
     @scopes_disabled()
     def test_a_plan_that_collected_money_is_not_offered_again(self):
