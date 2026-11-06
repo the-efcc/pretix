@@ -1189,11 +1189,12 @@ class BasePaymentProvider:
         pretix advances it based on your return value.
 
         Use ``installment.pk`` as your idempotency key with the provider. pretix will not
-        call this concurrently for one installment, but it does retry -- automatically on
-        the next run after a decline, and on demand from the control panel or the API --
-        and ``installment.pk`` is stable across every one of those attempts. A charge that
-        succeeded at the provider but whose response never reached us is otherwise
-        indistinguishable from a decline, and will be retried.
+        call this concurrently for one installment, but it can be retried after a decline, on
+        demand from the control panel or the API, and ``installment.pk`` is stable across
+        every one of those attempts. A charge that succeeded at the provider but whose
+        response never reached us is otherwise indistinguishable from a decline. pretix never
+        charges a declined installment again on its own: the customer pays it on the recovery
+        page, or the grace period cancels the order.
 
         :param plan: The InstallmentPlan containing payment token and configuration
         :param installment: The ScheduledInstallment to process

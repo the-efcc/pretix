@@ -40567,13 +40567,6 @@ msgstr ""
 "Si è verificato un errore durante l’elaborazione della tua richiesta. "
 "Riprova."
 
-#: pretix/presale/views/order.py
-msgid ""
-"Your payment method was updated, but the payment could not be processed "
-"immediately. We will retry automatically."
-msgstr ""
-"Il tuo metodo di pagamento è stato aggiornato, ma il pagamento non è stato "
-"elaborato immediatamente. Riproveremo automaticamente."
 #~ msgid "SSO provider:"
 #~ msgstr "Provider SSO:"
 

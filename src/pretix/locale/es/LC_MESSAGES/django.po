@@ -38289,13 +38289,6 @@ msgstr "Compruebe su información de pago e inténtelo de nuevo."
 msgid "There was an error processing your request. Please try again."
 msgstr "Se ha producido un error al procesar su solicitud. Inténtelo de nuevo."
 
-#: pretix/presale/views/order.py
-msgid ""
-"Your payment method was updated, but the payment could not be processed "
-"immediately. We will retry automatically."
-msgstr ""
-"Su método de pago se ha actualizado, pero el pago no se ha podido procesar "
-"de inmediato. Lo reintentaremos automáticamente."
 #~ msgid "SSO provider:"
 #~ msgstr "Proveedores de SSO:"
 

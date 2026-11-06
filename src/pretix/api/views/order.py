@@ -1070,6 +1070,13 @@ class EventOrderViewSet(OrderViewSetMixin, viewsets.ModelViewSet):
             return Response(data, status=status.HTTP_200_OK)
 
         elif request.method == 'DELETE':
+            # As in the control panel: a completed plan really did complete, and relabelling
+            # it cancelled would misreport an order that was paid in full.
+            if plan.status != InstallmentPlan.STATUS_ACTIVE:
+                return Response(
+                    {'error': 'This installment plan is not active.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
             cancel_order_param = request.query_params.get('cancel_order', '').lower() == 'true'
             user = request.user if hasattr(request, 'user') and request.user.is_authenticated else None
 

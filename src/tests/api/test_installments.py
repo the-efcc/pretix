@@ -187,6 +187,18 @@ class TestInstallmentPlanAPI:
             plan.refresh_from_db()
         assert plan.grace_period_end is None
 
+    def test_cancel_refuses_a_completed_plan(self, token_client, env):
+        orga, event, order, plan = env
+        with scope(organizer=orga):
+            plan.status = InstallmentPlan.STATUS_COMPLETED
+            plan.save(update_fields=['status'])
+
+        resp = token_client.delete(_url(orga, event, order))
+        assert resp.status_code == 400
+        with scope(organizer=orga):
+            plan.refresh_from_db()
+        assert plan.status == InstallmentPlan.STATUS_COMPLETED
+
     def test_cancel_plan(self, token_client, env):
         orga, event, order, plan = env
         resp = token_client.delete(_url(orga, event, order))
