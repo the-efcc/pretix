@@ -1606,7 +1606,6 @@ def add_payment_to_cart_session(cart_session, provider, min_value: Decimal=None,
         'min_value': str(min_value) if min_value is not None else None,
         'max_value': str(max_value) if max_value is not None else None,
         'info_data': info_data or {},
-        'pay_in_installments': installments_count >= 2,
         'installments_count': installments_count,
     })
     cart_session['payments_postpone'] = False

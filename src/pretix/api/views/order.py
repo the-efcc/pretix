@@ -88,7 +88,8 @@ from pretix.base.pdf import get_images
 from pretix.base.secrets import assign_ticket_secret
 from pretix.base.services import tickets
 from pretix.base.services.installments import (
-    cancel_installment_plan, process_single_installment,
+    cancel_installment_plan, filter_orders_by_installment_status,
+    process_single_installment,
 )
 from pretix.base.services.invoices import (
     generate_cancellation, generate_invoice, invoice_pdf, invoice_qualified,
@@ -157,38 +158,7 @@ with scopes_disabled():
             ))
 
         def installment_status_qs(self, qs, name, value):
-            if value == 'none':
-                return qs.exclude(Exists(
-                    InstallmentPlan.objects.filter(order=OuterRef('pk'))
-                ))
-            elif value == 'active':
-                return qs.filter(Exists(
-                    InstallmentPlan.objects.filter(
-                        order=OuterRef('pk'),
-                        status=InstallmentPlan.STATUS_ACTIVE
-                    )
-                ))
-            elif value == 'completed':
-                return qs.filter(Exists(
-                    InstallmentPlan.objects.filter(
-                        order=OuterRef('pk'),
-                        status=InstallmentPlan.STATUS_COMPLETED
-                    )
-                ))
-            elif value == 'failed':
-                return qs.filter(Exists(
-                    InstallmentPlan.objects.filter(
-                        order=OuterRef('pk'),
-                        status__in=[InstallmentPlan.STATUS_FAILED, InstallmentPlan.STATUS_CANCELLED]
-                    )
-                ) | Exists(
-                    InstallmentPlan.objects.filter(
-                        order=OuterRef('pk'),
-                        status=InstallmentPlan.STATUS_ACTIVE,
-                        grace_period_end__isnull=False
-                    )
-                ))
-            return qs
+            return filter_orders_by_installment_status(qs, value)
 
         def subevent_before_qs(self, qs, name, value):
             if getattr(self.request, 'event', None):

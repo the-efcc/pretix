@@ -1359,7 +1359,7 @@ class PaymentStep(InstallmentChoiceMixin, CartMixin, TemplateFlowStep):
 
     def installment_previous_choice(self):
         for payment in self.cart_session.get('payments', []):
-            if payment.get('pay_in_installments') and payment.get('installments_count', 0) >= 2:
+            if payment.get('installments_count', 0) >= 2:
                 return payment['installments_count']
         return 0
 
@@ -1418,7 +1418,6 @@ class PaymentStep(InstallmentChoiceMixin, CartMixin, TemplateFlowStep):
                         'min_value': None,
                         'max_value': None,
                         'info_data': {},
-                        'pay_in_installments': installments_count >= 2,
                         'installments_count': installments_count,
                     })
                     cart = self.get_cart(payments=simulated_payments)
@@ -1724,7 +1723,7 @@ class ConfirmStep(CartMixin, AsyncAction, TemplateFlowStep):
             'confirm_messages': [
                 conditional_escape(str(m)) for m in self.confirm_messages.values()
             ],
-            'pay_in_installments': any(p.get('pay_in_installments') for p in self.cart_session.get('payments', []))
+            'pay_in_installments': any(p.get('installments_count', 0) >= 2 for p in self.cart_session.get('payments', []))
         }
         api_meta = {}
         unlock_hashes = request.session.get('pretix_unlock_hashes', [])

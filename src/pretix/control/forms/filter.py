@@ -62,6 +62,9 @@ from pretix.base.models import (
     SalesChannel, SubEvent, SubEventMetaValue, Team, TeamAPIToken, TeamInvite,
     User, Voucher,
 )
+from pretix.base.services.installments import (
+    filter_orders_by_installment_status,
+)
 from pretix.base.signals import register_payment_providers
 from pretix.base.timeframes import (
     DateFrameField,
@@ -70,7 +73,6 @@ from pretix.base.timeframes import (
 from pretix.control.forms import SplitDateTimeField
 from pretix.control.forms.widgets import Select2, Select2ItemVarQuota
 from pretix.control.signals import order_search_filter_q
-from pretix.efcc.models import InstallmentPlan
 from pretix.helpers.countries import CachedCountries
 from pretix.helpers.database import (
     get_deterministic_ordering, rolledback_transaction,
@@ -559,31 +561,8 @@ class EventOrderFilterForm(OrderFilterForm):
                 )
                 qs = qs.annotate(has_answer=Exists(answers)).filter(has_answer=True)
 
-        installment_status = fdata.get('installment_status')
-        if installment_status:
-            if installment_status == 'none':
-                qs = qs.exclude(Exists(InstallmentPlan.objects.filter(order=OuterRef('pk'))))
-            elif installment_status == 'active':
-                qs = qs.filter(Exists(InstallmentPlan.objects.filter(
-                    order=OuterRef('pk'),
-                    status=InstallmentPlan.STATUS_ACTIVE
-                )))
-            elif installment_status == 'completed':
-                qs = qs.filter(Exists(InstallmentPlan.objects.filter(
-                    order=OuterRef('pk'),
-                    status=InstallmentPlan.STATUS_COMPLETED
-                )))
-            elif installment_status == 'failed':
-                qs = qs.filter(
-                    Exists(InstallmentPlan.objects.filter(
-                        order=OuterRef('pk'),
-                        status__in=[InstallmentPlan.STATUS_FAILED, InstallmentPlan.STATUS_CANCELLED]
-                    )) | Exists(InstallmentPlan.objects.filter(
-                        order=OuterRef('pk'),
-                        status=InstallmentPlan.STATUS_ACTIVE,
-                        grace_period_end__isnull=False
-                    ))
-                )
+        if fdata.get('installment_status'):
+            qs = filter_orders_by_installment_status(qs, fdata['installment_status'])
 
         return qs
 

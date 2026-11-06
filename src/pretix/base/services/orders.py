@@ -1119,7 +1119,7 @@ def _create_order(event: Event, *, email: str, positions: List[CartPosition], no
         installment_payment = None
         other_payments = []
         for p in payment_requests:
-            if p.get('pay_in_installments'):
+            if p.get('installments_count', 0) >= 2:
                 if installment_payment is not None:
                     # Keeping the last one and discarding the rest would silently drop a
                     # payment that the total was calculated with, leaving the order short
@@ -1144,11 +1144,7 @@ def _create_order(event: Event, *, email: str, positions: List[CartPosition], no
             installment_amount = installment_payment['payment_amount']
             provider = event.get_payment_providers().get(installment_payment['provider'])
             if installments_available_for_event(event, provider, installment_amount):
-                installments_count = installment_payment.get('installments_count')
-                if not installments_count or installments_count < 2:
-                    installments_count = event.settings.get('installments_count', as_type=int, default=3)
-                max_allowed = get_max_installments_for_event(event)
-                installments_count = min(installments_count, max_allowed)
+                installments_count = min(installment_payment['installments_count'], get_max_installments_for_event(event))
                 try:
                     plan = create_installment_plan(
                         order,

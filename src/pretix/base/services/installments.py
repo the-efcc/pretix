@@ -79,6 +79,27 @@ def get_max_installments_for_event(event, reference_date=None) -> int:
     return 0
 
 
+def filter_orders_by_installment_status(qs, value: str):
+    """
+    Narrow an order queryset by its installment plan: ``none``, ``active``, ``completed``
+    or ``failed`` -- the last also takes a cancelled plan and one in its grace period.
+    Any other value leaves the queryset alone.
+    """
+    plans = InstallmentPlan.objects.filter(order=models.OuterRef('pk'))
+    if value == 'none':
+        return qs.exclude(models.Exists(plans))
+    if value == 'active':
+        return qs.filter(models.Exists(plans.filter(status=InstallmentPlan.STATUS_ACTIVE)))
+    if value == 'completed':
+        return qs.filter(models.Exists(plans.filter(status=InstallmentPlan.STATUS_COMPLETED)))
+    if value == 'failed':
+        return qs.filter(models.Exists(plans.filter(
+            models.Q(status__in=(InstallmentPlan.STATUS_FAILED, InstallmentPlan.STATUS_CANCELLED))
+            | models.Q(status=InstallmentPlan.STATUS_ACTIVE, grace_period_end__isnull=False)
+        )))
+    return qs
+
+
 def installments_available_for_event(event, provider, cart_total: Decimal) -> bool:
     """
     Check if installments are available for an event, provider, and cart total.
@@ -182,56 +203,59 @@ def create_installment_plan(
         )['total'] or Decimal('0.00')
         base_total = order.total - payment_fees
 
-    amounts = calculate_installment_amounts(base_total, installments_count)
+    payment = order.payments.create(
+        state=OrderPayment.PAYMENT_STATE_CREATED,
+        provider=provider_name,
+        amount=base_total + payment_fees,
+        fee=fee,
+        info=json.dumps(info_data) if info_data else '{}',
+        process_initiated=False,
+    )
+    return _lay_out_plan(order, provider_name, installments_count, payment, base_total, payment_fees)
 
-    plan = InstallmentPlan.objects.create(
-        order=order,
+
+def _lay_out_plan(order: Order, provider_name: str, installments_count: int, payment: OrderPayment,
+                  base_total: Decimal, fee_value: Decimal) -> InstallmentPlan:
+    """
+    Split ``base_total`` into the order's plan, starting afresh if it already has one.
+
+    ``payment`` becomes the first installment, due now, and carries the payment fee; one
+    more installment follows each month. An existing plan's old schedule goes -- only a
+    plan that never started is set up again, and its failed payments stay on the order,
+    which is what records them.
+    """
+    amounts = calculate_installment_amounts(base_total, installments_count)
+    plan, _ = InstallmentPlan.objects.update_or_create(order=order, defaults=dict(
         payment_provider=provider_name,
         payment_token={},
         total_installments=installments_count,
         installments_paid=0,
         amount_per_installment=amounts[0],
-        status=InstallmentPlan.STATUS_ACTIVE
-    )
+        status=InstallmentPlan.STATUS_ACTIVE,
+        grace_period_end=None,
+        grace_warning_sent=False,
+    ))
+    plan.installments.all().delete()
 
-    first_payment_amount = amounts[0] + payment_fees
-    payment = order.payments.create(
-        state=OrderPayment.PAYMENT_STATE_CREATED,
-        provider=provider_name,
-        amount=first_payment_amount,
-        fee=fee,
-        info=json.dumps(info_data) if info_data else '{}',
-        process_initiated=False,
-    )
-
-    _schedule_installments(plan, amounts, first_payment_amount, payment)
-    return plan
-
-
-def _schedule_installments(plan: InstallmentPlan, amounts: List[Decimal], first_payment_amount: Decimal,
-                           payment: OrderPayment) -> None:
-    """
-    Lay out a plan's installments: the first, due now and paid by ``payment`` (whose amount
-    carries the payment fee), and one more each month after it.
-    """
+    payment.amount = amounts[0] + fee_value
+    payment.save(update_fields=['amount'])
     ScheduledInstallment.objects.create(
         plan=plan,
         installment_number=1,
-        amount=first_payment_amount,
+        amount=payment.amount,
         due_date=now(),
         state=ScheduledInstallment.STATE_PENDING,
         payment=payment,
     )
-
     for i, amount in enumerate(amounts[1:], start=2):
-        due_date = now() + relativedelta(months=i - 1)
         ScheduledInstallment.objects.create(
             plan=plan,
             installment_number=i,
             amount=amount,
-            due_date=due_date,
+            due_date=now() + relativedelta(months=i - 1),
             state=ScheduledInstallment.STATE_PENDING
         )
+    return plan
 
 
 def plan_not_started(plan: InstallmentPlan) -> bool:
@@ -300,37 +324,7 @@ def set_up_installment_plan(order: Order, provider_name: str, installments_count
             f"based on the event date."
         )
 
-    amounts = calculate_installment_amounts(base_total, installments_count)
-
-    try:
-        plan = InstallmentPlan.objects.select_for_update().get(order=order)
-    except InstallmentPlan.DoesNotExist:
-        plan = InstallmentPlan.objects.create(
-            order=order,
-            payment_provider=provider_name,
-            payment_token={},
-            total_installments=installments_count,
-            installments_paid=0,
-            amount_per_installment=amounts[0],
-            status=InstallmentPlan.STATUS_ACTIVE,
-        )
-    else:
-        plan.installments.all().delete()
-        plan.payment_provider = provider_name
-        plan.payment_token = {}
-        plan.total_installments = installments_count
-        plan.installments_paid = 0
-        plan.amount_per_installment = amounts[0]
-        plan.status = InstallmentPlan.STATUS_ACTIVE
-        plan.grace_period_end = None
-        plan.grace_warning_sent = False
-        plan.save()
-
-    first_payment_amount = amounts[0] + fee_value
-    payment.amount = first_payment_amount
-    payment.save(update_fields=['amount'])
-    _schedule_installments(plan, amounts, first_payment_amount, payment)
-    return plan
+    return _lay_out_plan(order, provider_name, installments_count, payment, base_total, fee_value)
 
 
 #: How long an installment may sit in ``processing`` before another run is allowed to
@@ -701,15 +695,10 @@ def process_single_installment(installment: ScheduledInstallment, send_mail: boo
             plan.refresh_from_db()
 
             if plan.status == InstallmentPlan.STATUS_COMPLETED:
-                try:
-                    provider.revoke_payment_token(plan)
-                except Exception:
-                    logger.warning(
-                        "Failed to revoke payment token for completed plan %s",
-                        plan.pk,
-                    )
+                token = plan.payment_token
                 plan.payment_token = {}
                 plan.save(update_fields=['payment_token'])
+                _revoke_token(plan, token)
 
         else:
             # Keep the failed charge on the order, carrying whatever the provider
@@ -945,20 +934,8 @@ def cancel_installment_plan(plan: InstallmentPlan, cancel_order: bool = False, u
             return
 
         order = plan.order
-        event = order.event
 
-        # No token, nothing to revoke -- and with the provider left alone this is database
-        # work only, so a plan that never got one can be cancelled inside a caller's
-        # transaction.
-        provider = event.get_payment_providers().get(plan.payment_provider)
-        if provider and plan.payment_token:
-            try:
-                provider.revoke_payment_token(plan)
-            except Exception:
-                logger.warning(
-                    "Failed to revoke payment token for cancelled plan %s", plan.pk,
-                )
-
+        token = plan.payment_token
         with transaction.atomic():
             plan.status = InstallmentPlan.STATUS_CANCELLED
             plan.payment_token = {}
@@ -979,6 +956,10 @@ def cancel_installment_plan(plan: InstallmentPlan, cancel_order: bool = False, u
                     data={'installment_plan_id': plan.pk},
                     user=user
                 )
+        # No token, nothing to revoke -- and with the provider left alone this is database
+        # work only, so a plan that never got one can be cancelled inside a caller's
+        # transaction.
+        _revoke_token(plan, token)
 
         if cancel_order:
             from pretix.base.services.orders import (

@@ -280,7 +280,7 @@ class CartMixin:
 
         installments = None
         for p in payment_requests:
-            if p.get('pay_in_installments') and p.get('installments_count', 0) >= 2:
+            if p.get('installments_count', 0) >= 2:
                 count = p['installments_count']
                 payment_fees = sum(f.value for f in fees if f.fee_type == OrderFee.FEE_TYPE_PAYMENT)
                 remaining = total - multi_use_total - payment_fees

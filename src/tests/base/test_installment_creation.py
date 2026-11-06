@@ -197,17 +197,15 @@ class TestCreateInstallmentPlan:
 @pytest.mark.django_db
 class TestPerformOrderWithInstallments:
 
-    def _perform(self, event, cart_position, provider, installments_count=None):
+    def _perform(self, event, cart_position, provider, installments_count=3):
         event.settings.set('installments_enabled', True)
 
         payment_request = {
             'provider': 'dummy',
             'payment_amount': Decimal('100.00'),
             'info_data': {},
-            'pay_in_installments': True,
+            'installments_count': installments_count,
         }
-        if installments_count is not None:
-            payment_request['installments_count'] = installments_count
 
         with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
             return perform_order(
@@ -227,16 +225,6 @@ class TestPerformOrderWithInstallments:
             assert order.installment_plan is not None
             assert order.installment_plan.total_installments == 3
             assert order.payments.first().amount == Decimal('33.33')
-
-    def test_uses_event_default_count(self, event, cart_position):
-        event.settings.set('installments_count', 4)
-
-        with scope(organizer=event.organizer):
-            result = self._perform(event, cart_position, _mock_order_provider())
-            order = Order.objects.get(pk=result['order_id'])
-
-            assert order.installment_plan.total_installments == 4
-            assert order.payments.first().amount == Decimal('25.00')
 
     def test_order_is_not_valid_before_the_first_installment_is_collected(self, event, cart_position):
         """
@@ -322,7 +310,6 @@ class TestPerformOrderWithInstallments:
             'provider': 'dummy',
             'payment_amount': Decimal('0.00'),
             'info_data': {},
-            'pay_in_installments': True,
             'installments_count': 3,
         }
         providers = {'dummy': provider, 'multiuse': gc_provider}
@@ -374,7 +361,6 @@ class TestPaymentFeeIsChargedUpFront:
             'provider': 'dummy',
             'payment_amount': Decimal('0.00'),
             'info_data': {},
-            'pay_in_installments': True,
             'installments_count': 3,
         }
         with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
@@ -403,7 +389,6 @@ class TestPaymentFeeIsChargedUpFront:
             'provider': 'dummy',
             'payment_amount': Decimal('0.00'),
             'info_data': {},
-            'pay_in_installments': True,
             'installments_count': 3,
         }
         with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
@@ -431,7 +416,7 @@ class TestPaymentFeeIsChargedUpFront:
 
         payment_request = {
             'provider': 'dummy', 'payment_amount': Decimal('0.00'), 'info_data': {},
-            'pay_in_installments': True, 'installments_count': 3,
+            'installments_count': 3,
         }
         with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
             result = perform_order(
@@ -456,7 +441,6 @@ class TestPaymentFeeIsChargedUpFront:
             'provider': 'dummy',
             'payment_amount': Decimal('0.00'),
             'info_data': {},
-            'pay_in_installments': True,
             'installments_count': 3,
         }
         with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': provider}):
@@ -510,7 +494,7 @@ class TestCreateOrderReturnsThePaymentsItCreated:
             {'provider': 'multiuse', 'payment_amount': Decimal('0.00'), 'max_value': '40.00',
              'info_data': {}, 'multi_use_supported': True, 'pprov': multiuse},
             {'provider': 'dummy', 'payment_amount': Decimal('0.00'), 'info_data': {},
-             'pay_in_installments': True, 'installments_count': 3, 'pprov': inst},
+             'installments_count': 3, 'pprov': inst},
         ]
 
         with scope(organizer=event.organizer):
@@ -532,9 +516,9 @@ class TestCreateOrderReturnsThePaymentsItCreated:
         inst, _ = self._providers()
         requests = [
             {'provider': 'dummy', 'payment_amount': Decimal('0.00'), 'info_data': {},
-             'pay_in_installments': True, 'installments_count': 3, 'pprov': inst},
+             'installments_count': 3, 'pprov': inst},
             {'provider': 'dummy', 'payment_amount': Decimal('0.00'), 'info_data': {},
-             'pay_in_installments': True, 'installments_count': 2, 'pprov': inst},
+             'installments_count': 2, 'pprov': inst},
         ]
 
         with scope(organizer=event.organizer):
@@ -546,7 +530,7 @@ class TestCreateOrderReturnsThePaymentsItCreated:
         inst, _ = self._providers()
         requests = [
             {'provider': 'dummy', 'payment_amount': Decimal('0.00'), 'info_data': {},
-             'pay_in_installments': True, 'installments_count': 3, 'pprov': inst},
+             'installments_count': 3, 'pprov': inst},
         ]
 
         with scope(organizer=event.organizer):
