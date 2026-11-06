@@ -327,9 +327,9 @@ def set_up_installment_plan(order: Order, provider_name: str, installments_count
     return _lay_out_plan(order, provider_name, installments_count, payment, base_total, fee_value)
 
 
-#: How long an installment may sit in ``processing`` before another run is allowed to
-#: take it over. Long enough that no provider call is still plausibly running, short
-#: enough that a worker killed mid-charge does not wedge the installment for good.
+#: How long an installment may sit in ``processing`` before it is taken to belong to a run
+#: that died. Long enough that no provider call is still plausibly running, short enough
+#: that a worker killed mid-charge does not wedge the installment for good.
 PROCESSING_LEASE = timedelta(hours=1)
 
 
@@ -553,21 +553,14 @@ def claim_installment(installment: ScheduledInstallment) -> bool:
 
     So the state is the lock: a single conditional UPDATE moves the installment into
     ``processing``, and the database guarantees exactly one caller sees it succeed. An
-    installment left in ``processing`` past :py:data:`PROCESSING_LEASE` is taken to belong
-    to a run that died, and can be claimed again -- otherwise a killed worker would strand
-    it in a state no retry path can reach.
+    installment stranded in ``processing`` is never claimed again here -- the run that
+    died may have taken the money -- but failed by :py:func:`fail_stalled_installments`.
 
     :return: True if this caller now owns the installment
     """
     with scopes_disabled():
         claimed = ScheduledInstallment.objects.filter(
-            models.Q(state__in=(
-                ScheduledInstallment.STATE_PENDING,
-                ScheduledInstallment.STATE_FAILED,
-            )) | models.Q(
-                state=ScheduledInstallment.STATE_PROCESSING,
-                processed_at__lt=now() - PROCESSING_LEASE,
-            ),
+            state__in=(ScheduledInstallment.STATE_PENDING, ScheduledInstallment.STATE_FAILED),
             pk=installment.pk,
         ).update(state=ScheduledInstallment.STATE_PROCESSING, processed_at=now())
 
@@ -773,6 +766,52 @@ def process_due_installments():
             )
 
 
+def fail_stalled_installments():
+    """
+    Fail the installments a dead run left in ``processing``.
+
+    A worker killed mid-charge leaves its installment in ``processing``, which nothing
+    charges, retries or cancels, and its order is kept out of expiry by the active plan --
+    so it sat there for good. Charging it again could take the money a second time, so it
+    fails instead, like a declined charge: the grace period starts and the customer is
+    told. A retry then goes through the provider, which can find the dead run's attempt on
+    the failed payment and see whether it went through.
+    """
+    with scopes_disabled():
+        stalled = list(ScheduledInstallment.objects.filter(
+            state=ScheduledInstallment.STATE_PROCESSING,
+            processed_at__lt=now() - PROCESSING_LEASE,
+        ).select_related('plan', 'plan__order', 'plan__order__event', 'payment'))
+
+        for installment in stalled:
+            plan = installment.plan
+            order = plan.order
+            with language(order.locale, order.event.settings.region):
+                reason = _('The payment was not completed.')
+            # Conditional, in case the run was only slow and has finished after all.
+            if not ScheduledInstallment.objects.filter(
+                pk=installment.pk, state=ScheduledInstallment.STATE_PROCESSING,
+                processed_at=installment.processed_at,
+            ).update(state=ScheduledInstallment.STATE_FAILED, failure_reason=reason):
+                continue
+            installment.state = ScheduledInstallment.STATE_FAILED
+            installment.failure_reason = reason
+            logger.error(
+                "Installment %s for order %s was left processing by a run that died. It may "
+                "have been charged; check with the payment provider.",
+                installment.pk, order.code,
+            )
+            payment = installment.payment
+            if payment and payment.state in (OrderPayment.PAYMENT_STATE_CREATED,
+                                             OrderPayment.PAYMENT_STATE_PENDING):
+                # Otherwise the payment stays live, and the retry refuses the installment.
+                payment.fail(info=payment.info_data or None, send_mail=False,
+                             log_data={'installment': installment.pk})
+            if plan.status == InstallmentPlan.STATUS_ACTIVE:
+                start_grace_period(plan, order.event)
+                send_installment_failed_mail(installment, plan)
+
+
 def process_expired_plans():
     """
     Processes all installment plans where the grace period has expired.
@@ -956,6 +995,8 @@ def cancel_installment_plan(plan: InstallmentPlan, cancel_order: bool = False, u
                     data={'installment_plan_id': plan.pk},
                     user=user
                 )
+            if not cancel_order:
+                _undo_valid_if_pending(order, plan, user)
         # No token, nothing to revoke -- and with the provider left alone this is database
         # work only, so a plan that never got one can be cancelled inside a caller's
         # transaction.
@@ -966,6 +1007,31 @@ def cancel_installment_plan(plan: InstallmentPlan, cancel_order: bool = False, u
                 cancel_order as cancel_order_service,
             )
             cancel_order_service(order.pk, user=user.pk if user else None, send_mail=send_mail)
+
+
+def _undo_valid_if_pending(order: Order, plan: InstallmentPlan, user=None) -> None:
+    """
+    Make an order the plan made usable while pending need paying before use again.
+
+    The plan's first collected installment sets ``valid_if_pending``, and that also keeps
+    the order out of expiry. A plan that stops with its order kept left both behind: the
+    tickets of an order paid a third of stayed valid, and the order never expired. Only
+    the plan's own setting is undone -- one an organizer or a voucher made stays -- and the
+    order gets a fresh payment term, so it does not expire the moment this runs.
+    """
+    if order.status != Order.STATUS_PENDING or not order.valid_if_pending:
+        return
+    last = order.all_logentries().filter(action_type__in=(
+        'pretix.event.order.valid_if_pending.set', 'pretix.event.order.valid_if_pending.unset',
+    )).order_by('-datetime', '-pk').first()
+    if not last or last.parsed_data.get('installment_plan_id') != plan.pk:
+        return
+    order.valid_if_pending = False
+    order.set_expires(now(), order.event.subevents.filter(
+        id__in=order.positions.values_list('subevent_id', flat=True)
+    ))
+    order.save(update_fields=['valid_if_pending', 'expires'])
+    order.log_action('pretix.event.order.valid_if_pending.unset', user=user)
 
 
 @receiver(signal=order_canceled)
@@ -1009,6 +1075,7 @@ def handle_order_paid(sender, **kwargs):
 @scopes_disabled()
 @minimum_interval(minutes_after_success=10, minutes_after_error=2)
 def run_installment_processing(sender, **kwargs):
+    fail_stalled_installments()
     process_due_installments()
     process_expired_plans()
     send_installment_reminders()
