@@ -40,7 +40,9 @@ from pretix.base.services.installments import (
     process_single_installment, send_grace_period_warnings,
     send_installment_reminders,
 )
-from pretix.base.services.orders import cancel_order, expire_orders
+from pretix.base.services.orders import (
+    OrderChangeManager, cancel_order, expire_orders,
+)
 from pretix.base.templatetags.money import money_filter
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 
@@ -569,6 +571,28 @@ class TestInstallmentClaiming:
         inst.refresh_from_db()
         assert inst.state == ScheduledInstallment.STATE_PENDING
 
+    def test_an_installment_the_customer_is_paying_is_not_claimed(self, event, order, plan):
+        """
+        The customer is on the recovery page, paying a failed installment, when the
+        organizer presses Retry. Charging the saved card too would take the money twice.
+        """
+        recovery = order.payments.create(provider='dummy', amount=Decimal('100.00'),
+                                         state=OrderPayment.PAYMENT_STATE_CREATED)
+        inst = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_FAILED, payment=recovery,
+        )
+        provider = _mock_provider()
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                assert process_single_installment(inst) is False
+
+        inst.refresh_from_db()
+        assert provider.execute_installment.call_count == 0
+        assert inst.state == ScheduledInstallment.STATE_FAILED
+        assert inst.payment == recovery
+
 
 @pytest.mark.django_db
 class TestChargeSurvivesLaterFailures:
@@ -948,6 +972,95 @@ class TestProcessorRespectsPlanAndOrderState:
         inst.refresh_from_db()
         assert provider.execute_installment.call_count == 1
         assert inst.state == ScheduledInstallment.STATE_PAID
+
+    def test_an_order_an_order_change_paid_off_is_not_charged(self, event, order, plan):
+        """
+        Installment 1 paid 100 of 300; the organizer then cancels the 200 ticket. The order
+        change marks the order paid without sending order_paid, so the plan never hears
+        about it -- and used to charge installments 2 and 3 anyway.
+        """
+        pos = order.positions.get()
+        pos.price = Decimal('100.00')
+        pos.save()
+        OrderPosition.objects.create(order=order, item=pos.item, price=Decimal('200.00'), positionid=2)
+        paid = order.payments.create(provider='dummy', amount=Decimal('100.00'),
+                                     state=OrderPayment.PAYMENT_STATE_CONFIRMED)
+        ScheduledInstallment.objects.create(
+            plan=plan, installment_number=1, amount=Decimal('100.00'), due_date=now() - timedelta(days=60),
+            state=ScheduledInstallment.STATE_PAID, payment=paid,
+        )
+        self._due(plan)
+        provider = _mock_provider()
+
+        with scope(organizer=event.organizer):
+            ocm = OrderChangeManager(order, notify=False)
+            ocm.cancel(order.positions.get(positionid=2))
+            ocm.commit(check_quotas=False)
+        order.refresh_from_db()
+        assert order.status == Order.STATUS_PAID
+
+        self._run(event, provider)
+
+        assert provider.execute_installment.call_count == 0
+
+
+@pytest.mark.django_db
+class TestUndecidedCharge:
+    """
+    A provider that has not heard how a charge ended returns None. Treating that as a
+    decline told the customer to pay again on the recovery page while the first charge
+    could still go through -- and both did.
+    """
+
+    def _charge_undecided(self, event, plan):
+        inst = ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PENDING,
+        )
+        mail.outbox = []
+        provider = _mock_provider(execute_result=None, info_data={'transaction_id': 42})
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                process_due_installments()
+                process_due_installments()
+        inst.refresh_from_db()
+        plan.refresh_from_db()
+        return inst, provider
+
+    def test_the_payment_waits_for_the_provider(self, event, order, plan):
+        inst, provider = self._charge_undecided(event, plan)
+
+        assert provider.execute_installment.call_count == 1
+        assert inst.state == ScheduledInstallment.STATE_PENDING
+        assert inst.payment.state == OrderPayment.PAYMENT_STATE_PENDING
+        # Kept, so the provider's webhook can find the payment by its transaction.
+        assert inst.payment.info_data == {'transaction_id': 42}
+        assert plan.grace_period_end is None
+        assert len(mail.outbox) == 0
+
+    def test_the_provider_settling_it_pays_the_installment(self, event, order, plan):
+        inst, provider = self._charge_undecided(event, plan)
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                inst.payment.confirm()
+
+        inst.refresh_from_db()
+        plan.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_PAID
+        assert plan.installments_paid == 2
+
+    def test_the_provider_declining_it_fails_the_installment(self, event, order, plan):
+        inst, provider = self._charge_undecided(event, plan)
+
+        with _patch_providers(provider):
+            with scope(organizer=event.organizer):
+                inst.payment.fail()
+
+        inst.refresh_from_db()
+        plan.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_FAILED
+        assert plan.grace_period_end is not None
 
 
 @pytest.mark.django_db
