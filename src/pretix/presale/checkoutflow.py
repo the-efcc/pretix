@@ -1346,16 +1346,39 @@ class PaymentStep(InstallmentChoiceMixin, CartMixin, TemplateFlowStep):
             }
 
             provider_dict['installments_available'] = installments_available_for_event(
-                self.request.event, provider, self._total_order_value
+                self.request.event, provider, self._remaining_order_value
             )
 
             providers.append(provider_dict)
         return providers
 
+    @cached_property
+    def _gift_card_payments(self):
+        """The multi-use payments, gift cards above all, already applied to this cart."""
+        cart = self.get_cart()
+        return [
+            p for p in self.current_selected_payments(cart['raw'], cart['fees'], cart['invoice_address'])
+            if p.get('multi_use_supported')
+        ]
+
+    @cached_property
+    def _remaining_order_value(self):
+        """
+        What the payment method chosen here pays: the order less the gift cards applied.
+
+        That, not the whole cart, is what an installment plan splits and what
+        ``installments_min_order_value`` is held against when the order is placed.
+        """
+        return (
+            self._total_order_value
+            - sum(p['payment_amount'] for p in self._gift_card_payments)
+            + sum(p['fee'] for p in self._gift_card_payments)
+        )
+
     @property
     def installment_base_amount(self):
-        # The cart total already excludes the payment fee, which is added per provider.
-        return self._total_order_value
+        # Excludes the payment fee, which is added per provider.
+        return self._remaining_order_value
 
     def installment_previous_choice(self):
         for payment in self.cart_session.get('payments', []):
@@ -1480,13 +1503,8 @@ class PaymentStep(InstallmentChoiceMixin, CartMixin, TemplateFlowStep):
     def get_context_data(self, **kwargs):
         ctx = super().get_context_data(**kwargs)
         ctx['cart'] = self.get_cart()
-        ctx['current_payments'] = [
-            p for p in self.current_selected_payments(
-                ctx['cart']['raw'], ctx['cart']['fees'], ctx['cart']['invoice_address'],
-            )
-            if p.get('multi_use_supported')
-        ]
-        ctx['remaining'] = self._total_order_value - sum(p['payment_amount'] for p in ctx['current_payments']) + sum(p['fee'] for p in ctx['current_payments'])
+        ctx['current_payments'] = self._gift_card_payments
+        ctx['remaining'] = self._remaining_order_value
         ctx['providers'] = self.provider_forms
         ctx['show_fees'] = any(p['fee'] for p in self.provider_forms)
         ctx.update(self.installment_context())
