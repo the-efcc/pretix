@@ -133,11 +133,6 @@
                         </a>
                     </p>
                 {% endif %}
-                <p>
-                    <a href="{% url "presale:event.order.installment.pay_in_full" event.organizer.slug event.slug order.code order.secret %}">
-                        {% trans "Pay the full amount instead" %}
-                    </a>
-                </p>
             </div>
         </div>
     {% elif order.status == "n" and not order.require_approval and not installment_plan_active %}

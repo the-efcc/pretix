@@ -63,10 +63,4 @@
             <div class="clearfix"></div>
         </div>
     </form>
-
-    <p class="text-right">
-        <a href="{% url "presale:event.order.installment.pay_in_full" event.organizer.slug event.slug order.code order.secret %}">
-            {% trans "Pay the full amount instead" %}
-        </a>
-    </p>
 {% endblock %}

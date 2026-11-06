@@ -183,81 +183,6 @@ class InstallmentOrderPageTest(TestCase):
         assert 'The installment plan has been canceled.' in content
         assert 'We are still waiting for your first installment payment' not in content
 
-    # -- Paying the rest at once instead --
-
-    @scopes_disabled()
-    def _fail_first_installment_with_grace(self, grace_end):
-        self._fail_first_installment()
-        self.plan.grace_period_end = grace_end
-        self.plan.save(update_fields=['grace_period_end'])
-        self.payment.state = OrderPayment.PAYMENT_STATE_FAILED
-        self.payment.save(update_fields=['state'])
-
-    def test_a_failed_installment_offers_to_pay_in_full(self):
-        self._fail_first_installment_with_grace(now() + timedelta(days=7))
-        link = 'href="%s"' % self._url('installment-recovery/pay-in-full/')
-        assert link in self.client.get(self._url()).content.decode()
-        assert link in self.client.get(self._url('installment-recovery/')).content.decode()
-
-    def test_pay_in_full_is_confirmed_before_anything_changes(self):
-        self._fail_first_installment_with_grace(now() + timedelta(days=7))
-        r = self.client.get(self._url('installment-recovery/pay-in-full/'))
-        assert r.status_code == 200
-        assert 'the remaining €300.00 at once' in r.content.decode()
-        with scopes_disabled():
-            self.plan.refresh_from_db()
-        assert self.plan.status == InstallmentPlan.STATUS_ACTIVE
-
-    def test_pay_in_full_needs_a_failed_installment(self):
-        # While the plan is collecting normally there is nothing to switch away from.
-        assert self.client.get(self._url('installment-recovery/pay-in-full/')).status_code == 404
-        assert self.client.post(self._url('installment-recovery/pay-in-full/')).status_code == 404
-        with scopes_disabled():
-            self.plan.refresh_from_db()
-        assert self.plan.status == InstallmentPlan.STATUS_ACTIVE
-
-    def test_paying_in_full_cancels_the_plan_and_opens_the_ordinary_payment(self):
-        # An installment order is kept out of expiry by its plan, so its own expiry date
-        # is easily long past by the time an installment fails.
-        with scopes_disabled():
-            self.order.expires = now() - timedelta(days=1)
-            self.order.save(update_fields=['expires'])
-        grace_end = now() + timedelta(days=7)
-        self._fail_first_installment_with_grace(grace_end)
-
-        r = self.client.post(self._url('installment-recovery/pay-in-full/'))
-        self.assertRedirects(r, self._url('pay/change'), fetch_redirect_response=False)
-
-        with scopes_disabled():
-            self.plan.refresh_from_db()
-            self.first.refresh_from_db()
-            self.order.refresh_from_db()
-            assert self.order.all_logentries().filter(
-                action_type='pretix.event.order.installment_plan.canceled',
-            ).get().parsed_data['by_customer'] is True
-        assert self.plan.status == InstallmentPlan.STATUS_CANCELLED
-        assert self.first.state == ScheduledInstallment.STATE_CANCELLED
-        # The order stays open as long as the plan would have, whatever its own expiry.
-        assert self.order.expires >= grace_end
-        assert self.order.status == Order.STATUS_PENDING
-
-        # And the ordinary payment page now takes the whole open balance.
-        r = self.client.get(self._url('pay/change'))
-        assert r.status_code == 200
-        assert 'href="%s"' % self._url('pay/change') in self.client.get(self._url()).content.decode()
-
-    @scopes_disabled()
-    def test_paying_in_full_does_not_shorten_a_later_expiry(self):
-        later = now() + timedelta(days=60)
-        self.order.expires = later
-        self.order.save(update_fields=['expires'])
-        self._fail_first_installment_with_grace(now() + timedelta(days=7))
-
-        self.client.post(self._url('installment-recovery/pay-in-full/'))
-
-        self.order.refresh_from_db()
-        assert self.order.expires == later
-
     # -- A failed installment of a running plan is shown as a pending payment --
 
     @scopes_disabled()
@@ -278,6 +203,9 @@ class InstallmentOrderPageTest(TestCase):
         assert 'A payment of €100.00 is still pending for this order.' in content
         assert 'Please complete your payment before' in content
         assert 'Re-try payment' in content
+        # A running plan is retried, not given up on: switching to paying at once is for a
+        # failed first payment, which the ordinary payment page offers.
+        assert 'pay-in-full' not in content
         # The plan itself is only information now: no alert of its own.
         assert 'alert-danger' not in content
         assert 'panel-danger' not in content
@@ -289,7 +217,6 @@ class InstallmentOrderPageTest(TestCase):
         assert 'A payment of €100.00 is still pending for this order.' in content
         assert 'checkout-button-row' in content
         assert 'Your payment method will be saved and used for future installment payments.' in content
-        assert 'href="%s"' % self._url('installment-recovery/pay-in-full/') in content
 
     def test_thank_you_does_not_claim_an_uncollected_first_installment(self):
         content = self.client.get(self._url() + '?thanks=1').content.decode()
