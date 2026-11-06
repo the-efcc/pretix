@@ -40232,6 +40232,11 @@ msgstr "Il piano rateale non effettua più addebiti, poiché l’ordine è stato
 msgid "The installment plan has been canceled."
 msgstr "Il piano rateale è stato annullato."
 
+#: pretix/control/logdisplay.py
+msgid ""
+"The remaining installments have been adjusted to the changed order total."
+msgstr "Le rate rimanenti sono state adeguate al nuovo importo dell’ordine."
+
 #: pretix/control/views/orders.py
 msgid "This installment plan is not active."
 msgstr "Questo piano rateale non è attivo."

@@ -1178,6 +1178,60 @@ class TestUndecidedCharge:
 
 
 @pytest.mark.django_db
+class TestOrderChangedDuringThePlan:
+    """
+    A plan's amounts are fixed when it is laid out. An order change moves the total, and
+    the installments still to come have to follow it.
+    """
+
+    def _plan_one_paid(self, order, plan, second_state=ScheduledInstallment.STATE_PENDING):
+        paid = order.payments.create(provider='dummy', amount=Decimal('100.00'),
+                                     state=OrderPayment.PAYMENT_STATE_CONFIRMED)
+        ScheduledInstallment.objects.create(
+            plan=plan, installment_number=1, amount=Decimal('100.00'), due_date=now() - timedelta(days=30),
+            state=ScheduledInstallment.STATE_PAID, payment=paid,
+        )
+        for number, state in ((2, second_state), (3, ScheduledInstallment.STATE_PENDING)):
+            ScheduledInstallment.objects.create(
+                plan=plan, installment_number=number, amount=Decimal('100.00'),
+                due_date=now() + timedelta(days=30 * (number - 1)), state=state,
+            )
+
+    def _change_price(self, event, order, price):
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                ocm = OrderChangeManager(order, notify=False)
+                ocm.change_price(order.positions.get(), Decimal(price))
+                ocm.commit(check_quotas=False)
+
+    def _amounts(self, plan):
+        return [i.amount for i in plan.installments.filter(installment_number__gt=1)]
+
+    def test_a_price_cut_lowers_the_installments_to_come(self, event, order, plan):
+        self._plan_one_paid(order, plan)
+        self._change_price(event, order, '240.00')
+        assert self._amounts(plan) == [Decimal('70.00'), Decimal('70.00')]
+
+    def test_a_price_rise_raises_them(self, event, order, plan):
+        self._plan_one_paid(order, plan)
+        self._change_price(event, order, '360.00')
+        assert self._amounts(plan) == [Decimal('130.00'), Decimal('130.00')]
+
+    def test_a_failed_installment_is_owed_as_it_stands(self, event, order, plan):
+        self._plan_one_paid(order, plan, second_state=ScheduledInstallment.STATE_FAILED)
+        self._change_price(event, order, '240.00')
+        assert self._amounts(plan) == [Decimal('100.00'), Decimal('40.00')]
+
+    def test_a_change_that_pays_the_order_off_completes_the_plan(self, event, order, plan):
+        self._plan_one_paid(order, plan)
+        self._change_price(event, order, '100.00')
+
+        plan.refresh_from_db()
+        assert plan.status == InstallmentPlan.STATUS_COMPLETED
+        assert plan.installments.filter(state=ScheduledInstallment.STATE_PENDING).count() == 0
+
+
+@pytest.mark.django_db
 class TestProcessExpiredPlans:
 
     def test_cancels_order_and_plan(self, event, order, plan):

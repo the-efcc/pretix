@@ -38337,6 +38337,12 @@ msgstr "L’échéancier de paiement ne prélève plus rien, la commande ayant �
 msgid "The installment plan has been canceled."
 msgstr "L’échéancier de paiement a été annulé."
 
+#: pretix/control/logdisplay.py
+msgid ""
+"The remaining installments have been adjusted to the changed order total."
+msgstr ""
+"Les échéances restantes ont été ajustées au nouveau montant de la commande."
+
 #: pretix/control/views/orders.py
 msgid "This installment plan is not active."
 msgstr "Cet échéancier de paiement n’est pas actif."

@@ -37965,6 +37965,11 @@ msgstr "El plan de pago a plazos y el pedido han sido cancelados."
 msgid "The installment plan has been canceled."
 msgstr "El plan de pago a plazos ha sido cancelado."
 
+#: pretix/control/logdisplay.py
+msgid ""
+"The remaining installments have been adjusted to the changed order total."
+msgstr "Las cuotas restantes se han ajustado al nuevo importe del pedido."
+
 #: pretix/control/views/orders.py
 msgid "This installment plan is not active."
 msgstr "Este plan de pago a plazos no está activo."

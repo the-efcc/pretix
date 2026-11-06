@@ -38,7 +38,9 @@ from pretix.base.i18n import (
     LazyCurrencyNumber, LazyDate, LazyExpiresDate, language,
 )
 from pretix.base.models import Order, OrderFee, OrderPayment, Quota
-from pretix.base.signals import order_canceled, order_paid, periodic_task
+from pretix.base.signals import (
+    order_canceled, order_changed, order_paid, periodic_task,
+)
 from pretix.efcc.models import InstallmentPlan, ScheduledInstallment
 from pretix.helpers.periodic import minimum_interval
 from pretix.multidomain.urlreverse import eventreverse_absolute
@@ -1099,6 +1101,66 @@ def handle_order_paid(sender, **kwargs):
         if plan is None:
             return
         complete_plan_for_settled_order(plan)
+
+
+@receiver(signal=order_changed, dispatch_uid="installments_order_changed")
+def handle_order_changed(sender, order, **kwargs):
+    """
+    Spread a changed order total over the installments still to come.
+
+    A plan's amounts are fixed when it is laid out, and an order change moves the total.
+    Without this the remaining charges kept the old figures: a price cut overpaid the
+    order, a price rise left it owing once the plan completed. Only installments the
+    processor will still charge are re-split; a failed one is owed as it stands, and one
+    with a payment in flight is already being paid. A change that pays the order off
+    completes the plan -- the order change marks the order paid without order_paid.
+
+    shortcut: a plan that has not started, or has nothing left to charge, is left as it
+    is; the order's open balance is then paid the ordinary way.
+    """
+    with scopes_disabled():
+        plan = InstallmentPlan.objects.filter(order=order, status=InstallmentPlan.STATUS_ACTIVE).first()
+        if plan is None or plan_not_started(plan):
+            return
+        if order.status == Order.STATUS_PAID:
+            complete_plan_for_settled_order(plan)
+            return
+
+        open_installments = plan.installments.filter(state__in=(
+            ScheduledInstallment.STATE_PENDING,
+            ScheduledInstallment.STATE_PROCESSING,
+            ScheduledInstallment.STATE_FAILED,
+        ))
+        to_come = list(open_installments.filter(state=ScheduledInstallment.STATE_PENDING).exclude(
+            payment__isnull=False,
+            payment__state__in=(OrderPayment.PAYMENT_STATE_CREATED, OrderPayment.PAYMENT_STATE_PENDING),
+        ))
+        if not to_come:
+            return
+        owed_otherwise = open_installments.exclude(pk__in=[i.pk for i in to_come]).aggregate(
+            s=models.Sum('amount')
+        )['s'] or Decimal('0.00')
+        target = order.pending_sum - owed_otherwise
+
+        with transaction.atomic():
+            if target <= Decimal('0.00'):
+                # What is owed otherwise already covers the order: nothing more to charge.
+                plan.installments.filter(pk__in=[i.pk for i in to_come]).update(
+                    state=ScheduledInstallment.STATE_CANCELLED
+                )
+                plan.total_installments -= len(to_come)
+                plan.save(update_fields=['total_installments'])
+            else:
+                amounts = calculate_installment_amounts(target, len(to_come))
+                for installment, amount in zip(to_come, amounts):
+                    installment.amount = amount
+                    installment.save(update_fields=['amount'])
+                plan.amount_per_installment = amounts[0]
+                plan.save(update_fields=['amount_per_installment'])
+            order.log_action('pretix.event.order.installment_plan.changed', data={
+                'installment_plan_id': plan.pk,
+                'installments': {i.installment_number: str(i.amount) for i in to_come} if target > 0 else {},
+            })
 
 
 @receiver(signal=periodic_task)

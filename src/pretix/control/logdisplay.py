@@ -592,6 +592,8 @@ class CoreOrderLogEntryType(OrderLogEntryType):
 
 @log_entry_types.new_from_dict({
     'pretix.event.order.installment_plan.canceled': _('The installment plan has been canceled.'),
+    'pretix.event.order.installment_plan.changed': _('The remaining installments have been adjusted to the '
+                                                     'changed order total.'),
     'pretix.event.order.installment_plan.completed': _('The installment plan has stopped collecting because the '
                                                        'order has been paid in full.'),
     'pretix.event.order.installment.reminder': _('An email has been sent with a reminder that an installment '
