@@ -13,7 +13,7 @@
     </h2>
 
     <p>
-        <strong>{% blocktrans trimmed with total=failed_installment.amount|money:event.currency %}
+        <strong>{% blocktrans trimmed with total=amount|money:event.currency %}
             A payment of {{ total }} is still pending for this order.
         {% endblocktrans %}</strong>
         {% if installment_plan.grace_period_end %}
@@ -33,7 +33,7 @@
     </p>
 
     <form method="post" class="form-horizontal"
-          data-total="{{ failed_installment.amount|money_numberfield:event.currency }}">
+          data-total="{{ amount|money_numberfield:event.currency }}">
         {% csrf_token %}
         {# Providers only bind their payment form to a POST that names them, and their #}
         {# frontend JS (Stripe, PayPal) only loads inside .payment-redo-form. #}
