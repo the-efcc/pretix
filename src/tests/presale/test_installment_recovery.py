@@ -124,15 +124,16 @@ class TestInstallmentRecovery(TestCase):
         assert self.client.get(url).status_code == 404
 
     @scopes_disabled()
-    def test_selects_earliest_failed_installment(self):
-        ScheduledInstallment.objects.create(
+    def test_asks_for_every_failed_installment(self):
+        third = ScheduledInstallment.objects.create(
             plan=self.plan, installment_number=3, amount=Decimal('100.00'),
             due_date=now() + timedelta(days=5), state=ScheduledInstallment.STATE_FAILED,
         )
         with patch('pretix.base.models.Event.get_payment_providers', return_value={'dummy': self._mock_provider()}):
             response = self.client.get(self._url())
         assert response.status_code == 200
-        assert response.context['failed_installment'].pk == self.installment.pk
+        assert [i.pk for i in response.context['failed_installments']] == [self.installment.pk, third.pk]
+        assert response.context['amount'] == self.installment.amount + third.amount
 
     # -- GET rendering --
 
@@ -328,7 +329,7 @@ class TestInstallmentRecovery(TestCase):
         assert self.plan.status == InstallmentPlan.STATUS_ACTIVE
 
     @scopes_disabled()
-    def test_post_only_recovers_first_failed_installment(self):
+    def test_post_recovers_every_failed_installment(self):
         second_failed = ScheduledInstallment.objects.create(
             plan=self.plan, installment_number=3, amount=Decimal('100.00'),
             due_date=now() + timedelta(days=5), state=ScheduledInstallment.STATE_FAILED,
@@ -339,7 +340,7 @@ class TestInstallmentRecovery(TestCase):
         self.installment.refresh_from_db()
         second_failed.refresh_from_db()
         assert self.installment.state == ScheduledInstallment.STATE_PAID
-        assert second_failed.state == ScheduledInstallment.STATE_FAILED
+        assert second_failed.state == ScheduledInstallment.STATE_PAID
 
     # -- POST failure paths --
 
