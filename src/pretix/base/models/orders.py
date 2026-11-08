@@ -2034,7 +2034,8 @@ class OrderPayment(models.Model):
             pk=self.order_id, status=Order.STATUS_PENDING, valid_if_pending=False,
         ).update(valid_if_pending=True):
             self.order.valid_if_pending = True
-            self.order.log_action('pretix.event.order.valid_if_pending.set', user=user, auth=auth)
+            self.order.log_action('pretix.event.order.valid_if_pending.set', user=user, auth=auth,
+                                  data={'installment_plan_id': installments[0].plan_id})
 
         if self.order.status in (Order.STATUS_PAID, Order.STATUS_CANCELED):
             logger.info('Confirmed payment {} but order is in status {}.'.format(self.full_id, self.order.status))

@@ -35,7 +35,8 @@ from pretix.base.models import (
 )
 from pretix.base.models.orders import OrderRefund
 from pretix.base.services.installments import (
-    PROCESSING_LEASE, claim_installment, create_installment_plan,
+    PROCESSING_LEASE, cancel_installment_plan, claim_installment,
+    create_installment_plan, fail_stalled_installments,
     process_due_installments, process_expired_plans,
     process_single_installment, send_grace_period_warnings,
     send_installment_reminders,
@@ -518,7 +519,8 @@ class TestInstallmentClaiming:
         assert provider.execute_installment.call_count == 0
         assert order.payments.count() == 0
 
-    def test_a_claim_from_a_dead_run_expires(self, event, order, plan):
+    def test_a_claim_from_a_dead_run_is_not_taken_over(self, event, order, plan):
+        """The dead run may have taken the money; fail_stalled_installments handles it."""
         inst = self._pending(
             plan,
             state=ScheduledInstallment.STATE_PROCESSING,
@@ -526,7 +528,7 @@ class TestInstallmentClaiming:
         )
 
         with scope(organizer=event.organizer):
-            assert claim_installment(inst) is True
+            assert claim_installment(inst) is False
 
     def test_a_fresh_claim_does_not_expire(self, event, order, plan):
         inst = self._pending(
@@ -592,6 +594,52 @@ class TestInstallmentClaiming:
         assert provider.execute_installment.call_count == 0
         assert inst.state == ScheduledInstallment.STATE_FAILED
         assert inst.payment == recovery
+
+
+@pytest.mark.django_db
+class TestStalledInstallments:
+    """
+    A worker killed mid-charge leaves its installment in `processing`, which nothing
+    charges, retries or cancels -- and the active plan keeps the order out of expiry.
+    """
+
+    def _stalled(self, order, plan, minutes_ago):
+        payment = order.payments.create(provider='dummy', amount=Decimal('100.00'),
+                                        state=OrderPayment.PAYMENT_STATE_CREATED,
+                                        info='{"transaction_id": 42}')
+        return ScheduledInstallment.objects.create(
+            plan=plan, installment_number=2, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=1), state=ScheduledInstallment.STATE_PROCESSING,
+            processed_at=now() - timedelta(minutes=minutes_ago), payment=payment,
+        )
+
+    def test_a_dead_run_fails_its_installment(self, event, order, plan):
+        inst = self._stalled(order, plan, PROCESSING_LEASE.total_seconds() / 60 + 1)
+        mail.outbox = []
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                fail_stalled_installments()
+
+        inst.refresh_from_db()
+        plan.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_FAILED
+        # Failed, not left live: a live payment would make the retry refuse it.
+        assert inst.payment.state == OrderPayment.PAYMENT_STATE_FAILED
+        # Kept, so a retry can ask the provider whether the dead run took the money.
+        assert inst.payment.info_data == {'transaction_id': 42}
+        assert plan.grace_period_end is not None
+        assert len(mail.outbox) == 1
+
+    def test_a_run_still_going_is_left_alone(self, event, order, plan):
+        inst = self._stalled(order, plan, 5)
+
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                fail_stalled_installments()
+
+        inst.refresh_from_db()
+        assert inst.state == ScheduledInstallment.STATE_PROCESSING
 
 
 @pytest.mark.django_db
@@ -734,6 +782,72 @@ class TestAbandonedPlansWindDown:
 
         provider.execute_installment.assert_not_called()
         assert len(mail.outbox) == 1
+
+    def test_a_checkout_left_with_its_payment_open_expires(self, event, order):
+        """
+        The customer closed the tab, or the provider errored before its payment page: the
+        payment stays `created` and never fails, so only expiry can end the order.
+        """
+        event.settings.payment_term_expire_automatically = True
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                create_installment_plan(order, 'dummy', installments_count=3)
+                order.expires = now() - timedelta(minutes=1)
+                order.save(update_fields=['expires'])
+                expire_orders(None)
+
+        order.refresh_from_db()
+        assert order.payments.get().state == OrderPayment.PAYMENT_STATE_CREATED
+        assert order.status == Order.STATUS_EXPIRED
+
+    def test_a_plan_that_is_collecting_keeps_its_order(self, event, order, plan):
+        event.settings.payment_term_expire_automatically = True
+        ScheduledInstallment.objects.create(
+            plan=plan, installment_number=1, amount=Decimal('100.00'),
+            due_date=now() - timedelta(days=30), state=ScheduledInstallment.STATE_PAID,
+        )
+        order.expires = now() - timedelta(minutes=1)
+        order.save(update_fields=['expires'])
+
+        with scope(organizer=event.organizer):
+            expire_orders(None)
+
+        order.refresh_from_db()
+        assert order.status == Order.STATUS_PENDING
+
+    def test_cancelling_the_plan_but_keeping_the_order_makes_it_need_paying(self, event, order):
+        """
+        Collecting installment 1 makes the order usable while pending. With the plan
+        cancelled and the order kept, its tickets stayed valid on a third of the money, and
+        the order never expired.
+        """
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                plan = create_installment_plan(order, 'dummy', installments_count=3)
+                plan.first_payment.confirm()
+                order.refresh_from_db()
+                assert order.valid_if_pending
+                order.expires = now() - timedelta(days=30)
+                order.save(update_fields=['expires'])
+
+                cancel_installment_plan(plan, cancel_order=False)
+
+        order.refresh_from_db()
+        assert not order.valid_if_pending
+        # A fresh payment term, not an expiry the moment the plan stops.
+        assert order.expires > now()
+
+    def test_an_order_the_organizer_made_usable_stays_usable(self, event, order):
+        with _patch_providers(_mock_provider()):
+            with scope(organizer=event.organizer):
+                plan = create_installment_plan(order, 'dummy', installments_count=3)
+                plan.first_payment.confirm()
+                order.log_action('pretix.event.order.valid_if_pending.set')
+
+                cancel_installment_plan(plan, cancel_order=False)
+
+        order.refresh_from_db()
+        assert order.valid_if_pending
 
     def test_a_failed_payment_of_a_running_plan_still_fails_its_installment(self, event, order, plan):
         """
