@@ -30,6 +30,7 @@ from pretix.base.models import (
     Event, InvoiceAddress, Item, Order, OrderPayment, OrderPosition, Organizer,
     Team, User,
 )
+from pretix.efcc.models import InstallmentPlan
 
 
 class OrderSearchTest(SoupTest):
@@ -140,6 +141,18 @@ class OrderSearchTest(SoupTest):
         resp = self.client.get('/control/search/orders/?query=dummy1@dummy').content.decode()
         assert 'ABCFO1' in resp
         resp = self.client.get('/control/search/orders/?query=dummynope').content.decode()
+        assert 'ABCFO1' not in resp
+
+    def test_filter_installment_status(self):
+        with scopes_disabled():
+            InstallmentPlan.objects.create(
+                order=Order.objects.get(code='ABCFO1A'), payment_provider='dummy', payment_token={},
+                total_installments=3, installments_paid=1, amount_per_installment=Decimal('5.00'),
+                status=InstallmentPlan.STATUS_ACTIVE,
+            )
+        resp = self.client.get('/control/search/orders/?installment_status=active').content.decode()
+        assert 'ABCFO1' in resp
+        resp = self.client.get('/control/search/orders/?installment_status=none').content.decode()
         assert 'ABCFO1' not in resp
 
     def test_filter_attendee_name(self):

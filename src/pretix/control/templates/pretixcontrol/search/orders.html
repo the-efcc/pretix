@@ -27,6 +27,9 @@
                 <div class="col-md-2 col-xs-6">
                     {% bootstrap_field filter_form.provider %}
                 </div>
+                <div class="col-md-2 col-xs-6">
+                    {% bootstrap_field filter_form.installment_status %}
+                </div>
                 {% for mf in meta_fields %}
                     <div class="col-md-2 col-sm-6 col-xs-12">
                         {% bootstrap_field mf %}

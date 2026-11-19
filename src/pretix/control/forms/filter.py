@@ -260,6 +260,17 @@ class OrderFilterForm(FilterForm):
         ),
         required=False,
     )
+    installment_status = forms.ChoiceField(
+        label=_('Installment plan status'),
+        choices=[
+            ('', _('All orders')),
+            ('none', _('Without installment plan')),
+            ('active', _('Active installment plan')),
+            ('completed', _('Completed installment plan')),
+            ('failed', _('Failed/Grace period')),
+        ],
+        required=False,
+    )
 
     def filter_qs(self, qs):
         fdata = self.cleaned_data
@@ -435,6 +446,9 @@ class OrderFilterForm(FilterForm):
             )
             qs = qs.filter(has_payment_with_provider=1)
 
+        if fdata.get('installment_status'):
+            qs = filter_orders_by_installment_status(qs, fdata['installment_status'])
+
         return qs
 
 
@@ -458,17 +472,6 @@ class EventOrderFilterForm(OrderFilterForm):
     )
     answer = forms.CharField(
         required=False
-    )
-    installment_status = forms.ChoiceField(
-        label=_('Installment plan status'),
-        choices=[
-            ('', _('All orders')),
-            ('none', _('Without installment plan')),
-            ('active', _('Active installment plan')),
-            ('completed', _('Completed installment plan')),
-            ('failed', _('Failed/Grace period')),
-        ],
-        required=False,
     )
 
     def __init__(self, *args, **kwargs):
@@ -560,9 +563,6 @@ class EventOrderFilterForm(OrderFilterForm):
                     answer__exact=fdata.get('answer')
                 )
                 qs = qs.annotate(has_answer=Exists(answers)).filter(has_answer=True)
-
-        if fdata.get('installment_status'):
-            qs = filter_orders_by_installment_status(qs, fdata['installment_status'])
 
         return qs
 
