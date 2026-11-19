@@ -83,8 +83,8 @@ def get_max_installments_for_event(event, reference_date=None) -> int:
 
 def filter_orders_by_installment_status(qs, value: str):
     """
-    Narrow an order queryset by its installment plan: ``none``, ``active``, ``completed``
-    or ``failed`` -- the last also takes a cancelled plan and one in its grace period.
+    Narrow an order queryset by its installment plan: ``none``, ``active``, ``completed``,
+    ``active_or_completed`` or ``failed`` -- the last also takes a cancelled plan and one in its grace period.
     Any other value leaves the queryset alone.
     """
     plans = InstallmentPlan.objects.filter(order=models.OuterRef('pk'))
@@ -92,6 +92,10 @@ def filter_orders_by_installment_status(qs, value: str):
         return qs.exclude(models.Exists(plans))
     if value == 'active':
         return qs.filter(models.Exists(plans.filter(status=InstallmentPlan.STATUS_ACTIVE)))
+    if value == 'active_or_completed':
+        return qs.filter(models.Exists(plans.filter(
+            status__in=(InstallmentPlan.STATUS_ACTIVE, InstallmentPlan.STATUS_COMPLETED)
+        )))
     if value == 'completed':
         return qs.filter(models.Exists(plans.filter(status=InstallmentPlan.STATUS_COMPLETED)))
     if value == 'failed':

@@ -466,6 +466,7 @@ class EventOrderFilterForm(OrderFilterForm):
             ('none', _('Without installment plan')),
             ('active', _('Active installment plan')),
             ('completed', _('Completed installment plan')),
+            ('active_or_completed', _('Active or completed installment plan')),
             ('failed', _('Failed/Grace period')),
         ],
         required=False,
