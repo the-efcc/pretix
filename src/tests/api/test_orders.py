@@ -2319,6 +2319,15 @@ def test_order_list_filter_installment_status(token_client, organizer, event, or
     assert 'ACTIVE' not in codes
     assert 'FAIL' not in codes
 
+    resp = token_client.get(
+        f'/api/v1/organizers/{organizer.slug}/events/{event.slug}/orders/?installment_status=active_or_completed'
+    )
+    assert resp.status_code == 200
+    codes = [o['code'] for o in resp.data['results']]
+    assert 'ACTIVE' in codes
+    assert 'COMPL' in codes
+    assert order.code not in codes
+
     # Test filter=failed: orders with failed/cancelled plans or in grace period
     resp = token_client.get(f'/api/v1/organizers/{organizer.slug}/events/{event.slug}/orders/?installment_status=failed')
     assert resp.status_code == 200
